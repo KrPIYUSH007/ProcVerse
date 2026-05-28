@@ -1,15 +1,17 @@
 import javafx.application.Application;
 import javafx.scene.Scene;
 import javafx.scene.layout.Pane;
-import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
+import javafx.scene.shape.Line;
 import javafx.scene.text.Text;
 import javafx.scene.text.Font;
 import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Universe extends Application {
 
@@ -23,14 +25,12 @@ public class Universe extends Application {
             ProcessMonitor.getProcesses();
 
         // --- Tooltip overlay ---
-        // Background box
         Rectangle tooltipBg = new Rectangle();
         tooltipBg.setFill(Color.color(0, 0, 0, 0.75));
         tooltipBg.setArcWidth(6);
         tooltipBg.setArcHeight(6);
         tooltipBg.setVisible(false);
 
-        // Label lines
         Text tooltipName  = new Text();
         Text tooltipPid   = new Text();
         Text tooltipState = new Text();
@@ -43,22 +43,19 @@ public class Universe extends Application {
             t.setVisible(false);
         }
 
-        // Create stars for processes
+        // --- Pass 1: create all stars, store by PID ---
+        Map<String, Circle> starMap = new HashMap<>();
+
         for (ProcessInfo process : processes) {
 
-            double x = Math.random() * 800;
-            double y = Math.random() * 600;
+            double x = Math.random() * 780 + 10;
+            double y = Math.random() * 580 + 10;
 
-            // Star size based on memory usage
             double radius =
-                Math.max(
-                    3,
-                    Math.min(process.memory / 5000.0, 25)
-                );
+                Math.max(3, Math.min(process.memory / 5000.0, 25));
 
             Circle star = new Circle(x, y, radius);
 
-            // Color based on process state
             switch (process.state) {
                 case "R": star.setFill(Color.LIME);   break;
                 case "S": star.setFill(Color.CYAN);   break;
@@ -84,26 +81,22 @@ public class Universe extends Application {
                 tooltipState.setText("  State : " + stateFull);
                 tooltipMem  .setText("  Mem   : " + process.memory + " kB");
 
-                // Position tooltip near cursor, keep it inside window
                 double tx = e.getSceneX() + 14;
                 double ty = e.getSceneY() - 10;
-
                 double boxW = 160;
                 double boxH = 72;
 
                 if (tx + boxW > 800) tx = e.getSceneX() - boxW - 6;
                 if (ty + boxH > 600) ty = e.getSceneY() - boxH - 6;
 
-                tooltipBg.setX(tx);
-                tooltipBg.setY(ty);
-                tooltipBg.setWidth(boxW);
-                tooltipBg.setHeight(boxH);
+                tooltipBg.setX(tx);   tooltipBg.setY(ty);
+                tooltipBg.setWidth(boxW); tooltipBg.setHeight(boxH);
 
-                double lineH = 16;
-                tooltipName .setX(tx); tooltipName .setY(ty + lineH);
-                tooltipPid  .setX(tx); tooltipPid  .setY(ty + lineH * 2);
-                tooltipState.setX(tx); tooltipState.setY(ty + lineH * 3);
-                tooltipMem  .setX(tx); tooltipMem  .setY(ty + lineH * 4);
+                double lh = 16;
+                tooltipName .setX(tx); tooltipName .setY(ty + lh);
+                tooltipPid  .setX(tx); tooltipPid  .setY(ty + lh * 2);
+                tooltipState.setX(tx); tooltipState.setY(ty + lh * 3);
+                tooltipMem  .setX(tx); tooltipMem  .setY(ty + lh * 4);
 
                 tooltipBg   .setVisible(true);
                 tooltipName .setVisible(true);
@@ -111,11 +104,9 @@ public class Universe extends Application {
                 tooltipState.setVisible(true);
                 tooltipMem  .setVisible(true);
 
-                // Highlight hovered star
                 star.setOpacity(0.7);
             });
 
-            // Hover exit: hide tooltip
             star.setOnMouseExited(e -> {
                 tooltipBg   .setVisible(false);
                 tooltipName .setVisible(false);
@@ -126,10 +117,36 @@ public class Universe extends Application {
                 star.setOpacity(1.0);
             });
 
-            root.getChildren().add(star);
+            starMap.put(process.pid, star);
         }
 
-        // Add tooltip nodes last so they render on top of stars
+        // --- Pass 2: draw connection lines (parent → child) ---
+        for (ProcessInfo process : processes) {
+
+            Circle child  = starMap.get(process.pid);
+            Circle parent = starMap.get(process.ppid);
+
+            // Only draw if both ends exist
+            if (child != null && parent != null) {
+
+                Line line = new Line(
+                    parent.getCenterX(), parent.getCenterY(),
+                    child .getCenterX(), child .getCenterY()
+                );
+
+                // Dim white line, low opacity so stars stay prominent
+                line.setStroke(Color.color(1, 1, 1, 0.15));
+                line.setStrokeWidth(0.6);
+
+                // Lines go in first so they render behind stars
+                root.getChildren().add(line);
+            }
+        }
+
+        // --- Pass 3: add stars on top of lines ---
+        root.getChildren().addAll(starMap.values());
+
+        // Tooltip nodes always on top
         root.getChildren().addAll(tooltipBg, tooltipName, tooltipPid, tooltipState, tooltipMem);
 
         Scene scene = new Scene(root, 800, 600, Color.BLACK);
