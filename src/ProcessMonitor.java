@@ -28,6 +28,7 @@ public class ProcessMonitor {
 
                 String processName = "";
                 String processState = "";
+                String parentPid = "0";
                 int memoryUsage = 0;
 
                 try (
@@ -63,6 +64,17 @@ public class ProcessMonitor {
                             }
                         }
 
+                        // Parent PID
+                        if (line.startsWith("PPid:")) {
+
+                            String[] parts =
+                                line.trim().split("\\s+");
+
+                            if (parts.length >= 2) {
+                                parentPid = parts[1];
+                            }
+                        }
+
                         // Memory Usage
                         if (line.startsWith("VmRSS:")) {
 
@@ -95,7 +107,7 @@ public class ProcessMonitor {
                 processes.add(
                     new ProcessInfo(
                         pid,
-                        "0",
+                        parentPid,
                         processName,
                         processState,
                         memoryUsage,
