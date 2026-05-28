@@ -1,4 +1,5 @@
 import javafx.application.Application;
+import javafx.scene.Group;
 import javafx.scene.Scene;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
@@ -18,13 +19,14 @@ public class Universe extends Application {
     @Override
     public void start(Stage stage) {
 
-        Pane root = new Pane();
+        // Use screen dimensions
+        javafx.geometry.Rectangle2D screen =
+            javafx.stage.Screen.getPrimary().getVisualBounds();
 
-        // Get real Linux processes
-        List<ProcessInfo> processes =
-            ProcessMonitor.getProcesses();
+        double W = screen.getWidth();
+        double H = screen.getHeight();
 
-        // --- Tooltip overlay ---
+        // --- Tooltip overlay (lives outside the zoomable group) ---
         Rectangle tooltipBg = new Rectangle();
         tooltipBg.setFill(Color.color(0, 0, 0, 0.75));
         tooltipBg.setArcWidth(6);
@@ -43,12 +45,11 @@ public class Universe extends Application {
             t.setVisible(false);
         }
 
-        // Use screen dimensions so stars fill the full display
-        javafx.geometry.Rectangle2D screen =
-            javafx.stage.Screen.getPrimary().getVisualBounds();
+        // Get real Linux processes
+        List<ProcessInfo> processes = ProcessMonitor.getProcesses();
 
-        double W = screen.getWidth();
-        double H = screen.getHeight();
+        // --- Zoomable/pannable group ---
+        Group universe = new Group();
 
         // --- Pass 1: create all stars, store by PID ---
         Map<String, Circle> starMap = new HashMap<>();
@@ -58,8 +59,7 @@ public class Universe extends Application {
             double x = Math.random() * (W - 20) + 10;
             double y = Math.random() * (H - 20) + 10;
 
-            double radius =
-                Math.max(3, Math.min(process.memory / 5000.0, 25));
+            double radius = Math.max(3, Math.min(process.memory / 5000.0, 25));
 
             Circle star = new Circle(x, y, radius);
 
@@ -96,7 +96,7 @@ public class Universe extends Application {
                 if (tx + boxW > W) tx = e.getSceneX() - boxW - 6;
                 if (ty + boxH > H) ty = e.getSceneY() - boxH - 6;
 
-                tooltipBg.setX(tx);   tooltipBg.setY(ty);
+                tooltipBg.setX(tx);       tooltipBg.setY(ty);
                 tooltipBg.setWidth(boxW); tooltipBg.setHeight(boxH);
 
                 double lh = 16;
@@ -127,13 +127,12 @@ public class Universe extends Application {
             starMap.put(process.pid, star);
         }
 
-        // --- Pass 2: draw connection lines (parent → child) ---
+        // --- Pass 2: draw connection lines ---
         for (ProcessInfo process : processes) {
 
             Circle child  = starMap.get(process.pid);
             Circle parent = starMap.get(process.ppid);
 
-            // Only draw if both ends exist
             if (child != null && parent != null) {
 
                 Line line = new Line(
@@ -141,24 +140,85 @@ public class Universe extends Application {
                     child .getCenterX(), child .getCenterY()
                 );
 
-                // Dim white line, low opacity so stars stay prominent
                 line.setStroke(Color.color(1, 1, 1, 0.15));
                 line.setStrokeWidth(0.6);
 
-                // Lines go in first so they render behind stars
-                root.getChildren().add(line);
+                universe.getChildren().add(line);
             }
         }
 
-        // --- Pass 3: add stars on top of lines ---
-        root.getChildren().addAll(starMap.values());
+        // --- Pass 3: stars on top of lines ---
+        universe.getChildren().addAll(starMap.values());
 
-        // Tooltip nodes always on top
+        // --- Root pane: universe group + tooltip overlay ---
+        Pane root = new Pane(universe);
         root.getChildren().addAll(tooltipBg, tooltipName, tooltipPid, tooltipState, tooltipMem);
+
+        // -----------------------------------------------
+        // Zoom with scroll wheel
+        // -----------------------------------------------
+        final double ZOOM_FACTOR = 1.12;
+        final double MIN_SCALE   = 0.2;
+        final double MAX_SCALE   = 8.0;
+
+        root.setOnScroll(e -> {
+
+            double scale = universe.getScaleX();
+
+            if (e.getDeltaY() > 0) {
+                scale = Math.min(scale * ZOOM_FACTOR, MAX_SCALE);
+            } else {
+                scale = Math.max(scale / ZOOM_FACTOR, MIN_SCALE);
+            }
+
+            // Zoom toward the mouse cursor position
+            double mouseX = e.getX();
+            double mouseY = e.getY();
+
+            double oldScale = universe.getScaleX();
+            double f = scale / oldScale;
+
+            double tx = universe.getTranslateX();
+            double ty = universe.getTranslateY();
+
+            universe.setScaleX(scale);
+            universe.setScaleY(scale);
+            universe.setTranslateX(mouseX - f * (mouseX - tx));
+            universe.setTranslateY(mouseY - f * (mouseY - ty));
+
+            e.consume();
+        });
+
+        // -----------------------------------------------
+        // Pan with click-and-drag
+        // -----------------------------------------------
+        final double[] dragStart = new double[2];
+
+        root.setOnMousePressed(e -> {
+            dragStart[0] = e.getSceneX() - universe.getTranslateX();
+            dragStart[1] = e.getSceneY() - universe.getTranslateY();
+        });
+
+        root.setOnMouseDragged(e -> {
+            universe.setTranslateX(e.getSceneX() - dragStart[0]);
+            universe.setTranslateY(e.getSceneY() - dragStart[1]);
+        });
+
+        // -----------------------------------------------
+        // Double-click to reset view
+        // -----------------------------------------------
+        root.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2) {
+                universe.setScaleX(1.0);
+                universe.setScaleY(1.0);
+                universe.setTranslateX(0);
+                universe.setTranslateY(0);
+            }
+        });
 
         Scene scene = new Scene(root, W, H, Color.BLACK);
 
-        stage.setTitle("ProcVerse 🌌");
+        stage.setTitle("ProcVerse 🌌  |  Scroll: zoom   Drag: pan   Double-click: reset");
         stage.setScene(scene);
         stage.setMaximized(true);
         stage.show();
