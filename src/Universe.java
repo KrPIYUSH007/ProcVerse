@@ -1,3 +1,4 @@
+import javafx.animation.AnimationTimer;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Application;
@@ -21,11 +22,20 @@ import java.util.Map;
 
 public class Universe extends Application {
 
-    // Bundles a star circle + its two labels so we can add/remove them together
+    // -----------------------------------------------
+    // StarNode — star circle + labels + orbit state
+    // -----------------------------------------------
     static class StarNode {
         Circle star;
         Text   pidLabel;
         Text   ppidLabel;
+
+        // Orbit data (only set for children)
+        boolean orbiting   = false;
+        double  orbitAngle = 0;       // current angle in radians
+        double  orbitSpeed = 0;       // radians per second
+        double  orbitRadius = 0;      // pixels from parent center
+        String  parentPid  = null;
 
         StarNode(Circle star, Text pidLabel, Text ppidLabel) {
             this.star      = star;
@@ -37,19 +47,17 @@ public class Universe extends Application {
     @Override
     public void start(Stage stage) {
 
-        // Screen dimensions
         javafx.geometry.Rectangle2D screen =
             javafx.stage.Screen.getPrimary().getVisualBounds();
 
         double W = screen.getWidth();
         double H = screen.getHeight();
 
-        // Virtual canvas 3x screen
         double VW = W * 3;
         double VH = H * 3;
 
         // -----------------------------------------------
-        // Tooltip — fixed on screen, outside zoomable group
+        // Tooltip
         // -----------------------------------------------
         Rectangle tooltipBg = new Rectangle();
         tooltipBg.setFill(Color.color(0, 0, 0, 0.80));
@@ -71,20 +79,14 @@ public class Universe extends Application {
         }
 
         // -----------------------------------------------
-        // Zoomable / pannable group
+        // Universe group
         // -----------------------------------------------
         Group universe = new Group();
         Scale scaleTransform = new Scale(1.0, 1.0, 0, 0);
         universe.getTransforms().add(scaleTransform);
 
-        // Live maps — keyed by PID string
-        Map<String, StarNode> nodeMap = new HashMap<>();  // star + labels
-        Map<String, Line>     lineMap = new HashMap<>();  // connection lines
-
-        // -----------------------------------------------
-        // Helper: build a StarNode for one ProcessInfo
-        // -----------------------------------------------
-        // (defined as a local method via lambda-style inner logic below)
+        Map<String, StarNode>  nodeMap = new HashMap<>();
+        Map<String, Line>      lineMap = new HashMap<>();
 
         // -----------------------------------------------
         // Initial load
@@ -95,6 +97,7 @@ public class Universe extends Application {
                     tooltipBg, tooltipName, tooltipPid, tooltipPpid,
                     tooltipState, tooltipMem, W, H);
         }
+        assignOrbits(initial, nodeMap);
         rebuildLines(initial, nodeMap, lineMap, universe);
 
         // Root pane
@@ -104,9 +107,67 @@ public class Universe extends Application {
             tooltipPpid, tooltipState, tooltipMem
         );
 
-        // Start centered
         universe.setTranslateX(-(VW - W) / 2);
         universe.setTranslateY(-(VH - H) / 2);
+
+        // -----------------------------------------------
+        // Animation loop — moves orbiting children
+        // -----------------------------------------------
+        final long[] lastTime = {0};
+
+        AnimationTimer orbitTimer = new AnimationTimer() {
+            @Override
+            public void handle(long now) {
+
+                if (lastTime[0] == 0) { lastTime[0] = now; return; }
+
+                double dt = (now - lastTime[0]) / 1_000_000_000.0; // seconds
+                lastTime[0] = now;
+
+                for (StarNode sn : nodeMap.values()) {
+
+                    if (!sn.orbiting) continue;
+
+                    StarNode parentNode = nodeMap.get(sn.parentPid);
+                    if (parentNode == null) continue;
+
+                    // Advance angle
+                    sn.orbitAngle += sn.orbitSpeed * dt;
+
+                    // New position around parent
+                    double px = parentNode.star.getCenterX();
+                    double py = parentNode.star.getCenterY();
+
+                    double nx = px + Math.cos(sn.orbitAngle) * sn.orbitRadius;
+                    double ny = py + Math.sin(sn.orbitAngle) * sn.orbitRadius;
+
+                    sn.star.setCenterX(nx);
+                    sn.star.setCenterY(ny);
+
+                    // Move labels with the star
+                    double r = sn.star.getRadius();
+                    sn.pidLabel .setX(nx - 10); sn.pidLabel .setY(ny + r + 12);
+                    sn.ppidLabel.setX(nx - 10); sn.ppidLabel.setY(ny + r + 23);
+                }
+
+                // Update line endpoints to follow moving stars
+                for (Map.Entry<String, Line> entry : lineMap.entrySet()) {
+                    String pid = entry.getKey();
+                    Line   line = entry.getValue();
+                    StarNode sn = nodeMap.get(pid);
+                    if (sn == null) continue;
+                    StarNode parentNode = nodeMap.get(
+                        getParentPid(sn, nodeMap)
+                    );
+                    if (parentNode == null) continue;
+                    line.setStartX(parentNode.star.getCenterX());
+                    line.setStartY(parentNode.star.getCenterY());
+                    line.setEndX(sn.star.getCenterX());
+                    line.setEndY(sn.star.getCenterY());
+                }
+            }
+        };
+        orbitTimer.start();
 
         // -----------------------------------------------
         // Realtime update — every 3 seconds
@@ -115,7 +176,6 @@ public class Universe extends Application {
 
             List<ProcessInfo> current = ProcessMonitor.getProcesses();
 
-            // Build a quick lookup of current PIDs
             Map<String, ProcessInfo> currentMap = new HashMap<>();
             for (ProcessInfo p : current) currentMap.put(p.pid, p);
 
@@ -138,7 +198,7 @@ public class Universe extends Application {
                 }
             }
 
-            // Update existing stars — color and size may change
+            // Update existing stars
             for (ProcessInfo p : current) {
                 StarNode sn = nodeMap.get(p.pid);
                 if (sn != null) {
@@ -153,7 +213,7 @@ public class Universe extends Application {
                 }
             }
 
-            // Rebuild connection lines
+            assignOrbits(current, nodeMap);
             rebuildLines(current, nodeMap, lineMap, universe);
         }));
 
@@ -161,7 +221,7 @@ public class Universe extends Application {
         ticker.play();
 
         // -----------------------------------------------
-        // Zoom — scroll wheel, pivot at cursor
+        // Zoom
         // -----------------------------------------------
         final double ZOOM_FACTOR = 1.15;
         final double MIN_SCALE   = 0.05;
@@ -194,7 +254,7 @@ public class Universe extends Application {
         });
 
         // -----------------------------------------------
-        // Pan — click and drag
+        // Pan
         // -----------------------------------------------
         final double[] dragStart = new double[2];
 
@@ -228,7 +288,59 @@ public class Universe extends Application {
     }
 
     // -----------------------------------------------
-    // Add a single star + labels to the universe
+    // Assign orbit parameters to child processes
+    // -----------------------------------------------
+    private void assignOrbits(List<ProcessInfo> processes, Map<String, StarNode> nodeMap) {
+
+        // Count children per parent
+        Map<String, List<String>> childrenOf = new HashMap<>();
+        for (ProcessInfo p : processes) {
+            if (nodeMap.containsKey(p.ppid) && !p.ppid.equals("0")) {
+                childrenOf.computeIfAbsent(p.ppid, k -> new ArrayList<>()).add(p.pid);
+            }
+        }
+
+        // Assign orbit to each child
+        for (Map.Entry<String, List<String>> entry : childrenOf.entrySet()) {
+
+            String       parentPid = entry.getKey();
+            List<String> children  = entry.getValue();
+            int          count     = children.size();
+
+            // Orbit radius grows with number of children, capped
+            double orbitRadius = Math.min(60 + count * 8, 220);
+
+            for (int i = 0; i < count; i++) {
+
+                StarNode sn = nodeMap.get(children.get(i));
+                if (sn == null) continue;
+
+                // Only set orbit params if not already orbiting
+                // (avoid resetting angle on every tick)
+                if (!sn.orbiting) {
+                    sn.orbiting    = true;
+                    sn.parentPid   = parentPid;
+                    sn.orbitRadius = orbitRadius;
+                    sn.orbitAngle  = (2 * Math.PI / count) * i; // evenly spaced
+                    // Slower orbit for larger systems, faster for small ones
+                    sn.orbitSpeed  = 0.3 / Math.sqrt(orbitRadius / 60.0);
+                } else {
+                    // Update radius if child count changed
+                    sn.orbitRadius = orbitRadius;
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------
+    // Get parent PID from nodeMap for a StarNode
+    // -----------------------------------------------
+    private String getParentPid(StarNode sn, Map<String, StarNode> nodeMap) {
+        return sn.parentPid != null ? sn.parentPid : "0";
+    }
+
+    // -----------------------------------------------
+    // Add a single star + labels
     // -----------------------------------------------
     private void addStar(
             ProcessInfo p,
@@ -255,7 +367,6 @@ public class Universe extends Application {
             default:  star.setFill(Color.WHITE);
         }
 
-        // Hover tooltip
         star.setOnMouseEntered(e -> {
 
             String stateFull;
@@ -312,12 +423,10 @@ public class Universe extends Application {
             star.setOpacity(1.0);
         });
 
-        // PID label
         Text pidLabel = new Text(x - 10, y + radius + 12, "PID:" + p.pid);
         pidLabel.setFont(Font.font("Monospace", 9));
         pidLabel.setFill(Color.color(1, 1, 1, 0.6));
 
-        // PPID label
         Text ppidLabel = new Text(x - 10, y + radius + 23, "PAR:" + p.ppid);
         ppidLabel.setFont(Font.font("Monospace", 9));
         ppidLabel.setFill(Color.color(1, 1, 1, 0.35));
@@ -327,7 +436,7 @@ public class Universe extends Application {
     }
 
     // -----------------------------------------------
-    // Rebuild all connection lines from scratch
+    // Rebuild connection lines
     // -----------------------------------------------
     private void rebuildLines(
             List<ProcessInfo> processes,
@@ -335,11 +444,9 @@ public class Universe extends Application {
             Map<String, Line> lineMap,
             Group universe) {
 
-        // Remove old lines
         universe.getChildren().removeAll(lineMap.values());
         lineMap.clear();
 
-        // Draw new lines
         for (ProcessInfo p : processes) {
 
             StarNode child  = nodeMap.get(p.pid);
@@ -355,7 +462,6 @@ public class Universe extends Application {
                 line.setStroke(Color.color(1, 1, 1, 0.15));
                 line.setStrokeWidth(0.6);
 
-                // Insert lines at index 0 so they stay behind stars
                 universe.getChildren().add(0, line);
                 lineMap.put(p.pid, line);
             }
