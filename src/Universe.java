@@ -26,6 +26,10 @@ public class Universe extends Application {
         double W = screen.getWidth();
         double H = screen.getHeight();
 
+        // Virtual canvas is 3x the screen so zooming out reveals more stars
+        double VW = W * 3;
+        double VH = H * 3;
+
         // --- Tooltip overlay (lives outside the zoomable group) ---
         Rectangle tooltipBg = new Rectangle();
         tooltipBg.setFill(Color.color(0, 0, 0, 0.75));
@@ -56,8 +60,8 @@ public class Universe extends Application {
 
         for (ProcessInfo process : processes) {
 
-            double x = Math.random() * (W - 20) + 10;
-            double y = Math.random() * (H - 20) + 10;
+            double x = Math.random() * (VW - 20) + 10;
+            double y = Math.random() * (VH - 20) + 10;
 
             double radius = Math.max(3, Math.min(process.memory / 5000.0, 25));
 
@@ -158,33 +162,33 @@ public class Universe extends Application {
         // Zoom with scroll wheel
         // -----------------------------------------------
         final double ZOOM_FACTOR = 1.12;
-        final double MIN_SCALE   = 0.2;
+        final double MIN_SCALE   = 0.1;
         final double MAX_SCALE   = 8.0;
 
         root.setOnScroll(e -> {
 
-            double scale = universe.getScaleX();
+            double oldScale = universe.getScaleX();
+            double newScale;
 
             if (e.getDeltaY() > 0) {
-                scale = Math.min(scale * ZOOM_FACTOR, MAX_SCALE);
+                newScale = Math.min(oldScale * ZOOM_FACTOR, MAX_SCALE);
             } else {
-                scale = Math.max(scale / ZOOM_FACTOR, MIN_SCALE);
+                newScale = Math.max(oldScale / ZOOM_FACTOR, MIN_SCALE);
             }
 
-            // Zoom toward the mouse cursor position
-            double mouseX = e.getX();
-            double mouseY = e.getY();
+            // Pivot zoom around the mouse cursor
+            // Convert mouse scene coords into the group's local space
+            double pivotX = e.getX();
+            double pivotY = e.getY();
 
-            double oldScale = universe.getScaleX();
-            double f = scale / oldScale;
+            double scaleDelta = newScale / oldScale;
 
-            double tx = universe.getTranslateX();
-            double ty = universe.getTranslateY();
+            universe.setScaleX(newScale);
+            universe.setScaleY(newScale);
 
-            universe.setScaleX(scale);
-            universe.setScaleY(scale);
-            universe.setTranslateX(mouseX - f * (mouseX - tx));
-            universe.setTranslateY(mouseY - f * (mouseY - ty));
+            // Adjust translate so the point under the cursor stays fixed
+            universe.setTranslateX(pivotX - scaleDelta * (pivotX - universe.getTranslateX()));
+            universe.setTranslateY(pivotY - scaleDelta * (pivotY - universe.getTranslateY()));
 
             e.consume();
         });
@@ -211,10 +215,14 @@ public class Universe extends Application {
             if (e.getClickCount() == 2) {
                 universe.setScaleX(1.0);
                 universe.setScaleY(1.0);
-                universe.setTranslateX(0);
-                universe.setTranslateY(0);
+                universe.setTranslateX(-(VW - W) / 2);
+                universe.setTranslateY(-(VH - H) / 2);
             }
         });
+
+        // Start centered: shift the universe so its center aligns with screen center
+        universe.setTranslateX(-(VW - W) / 2);
+        universe.setTranslateY(-(VH - H) / 2);
 
         Scene scene = new Scene(root, W, H, Color.BLACK);
 
