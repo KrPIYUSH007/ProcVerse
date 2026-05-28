@@ -292,40 +292,43 @@ public class Universe extends Application {
     // -----------------------------------------------
     private void assignOrbits(List<ProcessInfo> processes, Map<String, StarNode> nodeMap) {
 
-        // Count children per parent
+        // Build parent→children map
         Map<String, List<String>> childrenOf = new HashMap<>();
         for (ProcessInfo p : processes) {
-            if (nodeMap.containsKey(p.ppid) && !p.ppid.equals("0")) {
+            // Only orbit if parent exists in the scene AND parent is not "0"
+            if (!p.ppid.equals("0") && nodeMap.containsKey(p.ppid)) {
                 childrenOf.computeIfAbsent(p.ppid, k -> new ArrayList<>()).add(p.pid);
             }
         }
 
-        // Assign orbit to each child
+        // Mark all nodes as non-orbiting first, then re-assign
+        // (keeps angles stable for existing orbiters)
         for (Map.Entry<String, List<String>> entry : childrenOf.entrySet()) {
 
             String       parentPid = entry.getKey();
             List<String> children  = entry.getValue();
             int          count     = children.size();
 
-            // Orbit radius grows with number of children, capped
-            double orbitRadius = Math.min(60 + count * 8, 220);
+            // Skip parents with too many children (e.g. systemd) — would make
+            // a giant ring that fills the screen
+            if (count > 30) continue;
+
+            // Tighter radius — max 120px so systems stay compact
+            double orbitRadius = Math.min(40 + count * 5, 120);
 
             for (int i = 0; i < count; i++) {
 
                 StarNode sn = nodeMap.get(children.get(i));
                 if (sn == null) continue;
 
-                // Only set orbit params if not already orbiting
-                // (avoid resetting angle on every tick)
                 if (!sn.orbiting) {
                     sn.orbiting    = true;
                     sn.parentPid   = parentPid;
                     sn.orbitRadius = orbitRadius;
-                    sn.orbitAngle  = (2 * Math.PI / count) * i; // evenly spaced
-                    // Slower orbit for larger systems, faster for small ones
-                    sn.orbitSpeed  = 0.3 / Math.sqrt(orbitRadius / 60.0);
+                    sn.orbitAngle  = (2 * Math.PI / count) * i;
+                    // Slower for bigger orbits
+                    sn.orbitSpeed  = 0.4 / Math.sqrt(orbitRadius / 40.0);
                 } else {
-                    // Update radius if child count changed
                     sn.orbitRadius = orbitRadius;
                 }
             }
