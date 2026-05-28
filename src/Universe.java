@@ -43,13 +43,20 @@ public class Universe extends Application {
             t.setVisible(false);
         }
 
+        // Use screen dimensions so stars fill the full display
+        javafx.geometry.Rectangle2D screen =
+            javafx.stage.Screen.getPrimary().getVisualBounds();
+
+        double W = screen.getWidth();
+        double H = screen.getHeight();
+
         // --- Pass 1: create all stars, store by PID ---
         Map<String, Circle> starMap = new HashMap<>();
 
         for (ProcessInfo process : processes) {
 
-            double x = Math.random() * 780 + 10;
-            double y = Math.random() * 580 + 10;
+            double x = Math.random() * (W - 20) + 10;
+            double y = Math.random() * (H - 20) + 10;
 
             double radius =
                 Math.max(3, Math.min(process.memory / 5000.0, 25));
@@ -86,8 +93,8 @@ public class Universe extends Application {
                 double boxW = 160;
                 double boxH = 72;
 
-                if (tx + boxW > 800) tx = e.getSceneX() - boxW - 6;
-                if (ty + boxH > 600) ty = e.getSceneY() - boxH - 6;
+                if (tx + boxW > W) tx = e.getSceneX() - boxW - 6;
+                if (ty + boxH > H) ty = e.getSceneY() - boxH - 6;
 
                 tooltipBg.setX(tx);   tooltipBg.setY(ty);
                 tooltipBg.setWidth(boxW); tooltipBg.setHeight(boxH);
@@ -149,10 +156,11 @@ public class Universe extends Application {
         // Tooltip nodes always on top
         root.getChildren().addAll(tooltipBg, tooltipName, tooltipPid, tooltipState, tooltipMem);
 
-        Scene scene = new Scene(root, 800, 600, Color.BLACK);
+        Scene scene = new Scene(root, W, H, Color.BLACK);
 
         stage.setTitle("ProcVerse 🌌");
         stage.setScene(scene);
+        stage.setMaximized(true);
         stage.show();
     }
 
