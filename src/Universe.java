@@ -311,10 +311,10 @@ public class Universe extends Application {
 
             // Skip parents with too many children (e.g. systemd) — would make
             // a giant ring that fills the screen
-            if (count > 30) continue;
+            if (count > 50) continue;
 
-            // Tighter radius — max 120px so systems stay compact
-            double orbitRadius = Math.min(40 + count * 5, 120);
+            // Orbit radius: tight for small groups, wider for larger ones
+            double orbitRadius = Math.min(35 + count * 6, 150);
 
             for (int i = 0; i < count; i++) {
 
@@ -326,8 +326,8 @@ public class Universe extends Application {
                     sn.parentPid   = parentPid;
                     sn.orbitRadius = orbitRadius;
                     sn.orbitAngle  = (2 * Math.PI / count) * i;
-                    // Slower for bigger orbits
-                    sn.orbitSpeed  = 0.4 / Math.sqrt(orbitRadius / 40.0);
+                    // Faster orbit so motion is clearly visible
+                    sn.orbitSpeed  = 0.6 / Math.sqrt(orbitRadius / 35.0);
                 } else {
                     sn.orbitRadius = orbitRadius;
                 }
@@ -355,8 +355,22 @@ public class Universe extends Application {
             Text tooltipState, Text tooltipMem,
             double W, double H) {
 
-        double x = Math.random() * (VW - 20) + 10;
-        double y = Math.random() * (VH - 20) + 10;
+        // If parent exists, place near parent; otherwise random on canvas
+        double x, y;
+        StarNode parentNode = nodeMap.get(p.ppid);
+        if (parentNode != null && !p.ppid.equals("0")) {
+            // Spawn within 150px of parent so the system stays local
+            double angle = Math.random() * 2 * Math.PI;
+            double dist  = 60 + Math.random() * 90;
+            x = parentNode.star.getCenterX() + Math.cos(angle) * dist;
+            y = parentNode.star.getCenterY() + Math.sin(angle) * dist;
+            // Clamp to canvas
+            x = Math.max(10, Math.min(VW - 10, x));
+            y = Math.max(10, Math.min(VH - 10, y));
+        } else {
+            x = Math.random() * (VW - 20) + 10;
+            y = Math.random() * (VH - 20) + 10;
+        }
 
         double radius = Math.max(3, Math.min(p.memory / 5000.0, 25));
 
