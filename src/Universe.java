@@ -98,9 +98,10 @@ public class Universe extends Application {
         new String[]{}, 0, 0, 0, 0.5, 0.5, 0.5);
 
     // Camera state
-    double camRotX = 0.3;   // tilt (radians)
-    double camRotY = 0;     // spin (radians)
-    double camZoom = 800;   // perspective focal length
+    double camRotX  = 0.3;   // tilt (radians)
+    double camRotY  = 0;     // spin (radians)
+    double camZoom  = 800;   // perspective focal length
+    double camDist  = 0;     // camera forward/back offset (moves into scene)
 
     // Auto-rotation speed
     double autoRotY = 0.0003;
@@ -267,13 +268,16 @@ public class Universe extends Application {
             });
 
             // -----------------------------------------------
-            // Scroll — zoom (move camera closer/further)
+            // Scroll — fly into/out of the scene
             // -----------------------------------------------
             canvas.setOnScroll(e -> {
                 double delta = e.getDeltaY();
                 if (delta == 0) delta = -e.getTextDeltaY();
-                camZoom += delta * 2;
-                camZoom = Math.max(200, Math.min(3000, camZoom));
+                // Negative delta = scroll up = fly IN (increase camDist)
+                camDist -= delta * 1.5;
+                // No hard cap — you can fly as deep as you want
+                // but don't go past the stars (prevent clipping)
+                camDist = Math.max(-camZoom + 100, camDist);
             });
 
             // -----------------------------------------------
@@ -336,6 +340,7 @@ public class Universe extends Application {
                     camRotX  = 0.3;
                     camRotY  = 0;
                     camZoom  = 800;
+                    camDist  = 0;
                     autoRotY = 0.0003;
                 }
             });
@@ -367,9 +372,9 @@ public class Universe extends Application {
         double ry = wy * cosX - rz * sinX;
         rz         = wy * sinX + rz * cosX;
 
-        // Perspective — move camera back by camZoom
-        double depth = rz + camZoom;
-        if (depth < 50) return null; // behind camera
+        // Move camera forward (camDist pushes into the scene)
+        double depth = rz + camZoom - camDist;
+        if (depth < 50) return null;
 
         double scale = camZoom / depth;
         double sx = CX + rx * scale;
