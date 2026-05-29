@@ -401,7 +401,7 @@ public class Universe extends Application {
         // Sort far to near (painter's algorithm)
         projected.sort((a, b) -> Double.compare(a[2], b[2]));
 
-        // Draw connection lines first
+        // Draw connection lines first — ALL parent-child relationships
         for (Star3D s : stars) {
             if (s.parentPid == null) continue;
             Star3D parent = starMap.get(s.parentPid);
@@ -411,11 +411,14 @@ public class Universe extends Application {
             double[] pp = project(parent.x, parent.y, parent.z);
             if (sp == null || pp == null) continue;
 
-            double opacity = Math.min(sp[2], pp[2]) * 0.15;
-            opacity = Math.max(0.03, Math.min(0.18, opacity));
+            // Line brightness based on average depth of both endpoints
+            double avgScale = (sp[2] + pp[2]) / 2.0;
+            double opacity  = Math.max(0.05, Math.min(0.35, avgScale * 0.4));
 
-            gc.setStroke(Color.color(1, 1, 1, opacity));
-            gc.setLineWidth(0.5);
+            // Color lines by cluster — use child star's state color tinted
+            double[] rgb = stateColor(s.info.state);
+            gc.setStroke(Color.color(rgb[0] * 0.6, rgb[1] * 0.6, rgb[2] * 0.6, opacity));
+            gc.setLineWidth(Math.max(0.3, avgScale * 0.6));
             gc.strokeLine(pp[0], pp[1], sp[0], sp[1]);
         }
 
