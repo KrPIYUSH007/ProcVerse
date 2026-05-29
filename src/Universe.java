@@ -80,8 +80,8 @@ public class Universe extends Application {
             // -----------------------------------------------
             // Define clusters — evenly spaced in a 3x2 grid on screen
             // -----------------------------------------------
-            double padX = W * 0.18;
-            double padY = H * 0.22;
+            double padX = W * 0.20;
+            double padY = H * 0.25;
             double stepX = (W - padX * 2) / 2;
             double stepY = (H - padY * 2) / 1;
 
@@ -263,7 +263,7 @@ public class Universe extends Application {
                     for (ProcessInfo p : current) {
                         StarNode sn = nodeMap.get(p.pid);
                         if (sn == null) continue;
-                        sn.star.setRadius(Math.max(3, Math.min(p.memory / 5000.0, 25)));
+                        sn.star.setRadius(Math.max(2, Math.min(p.memory / 15000.0, 12)));
                         switch (p.state) {
                             case "R": sn.star.setFill(Color.LIME);   break;
                             case "S": sn.star.setFill(Color.CYAN);   break;
@@ -353,13 +353,13 @@ public class Universe extends Application {
 
     private void addClusterLabel(Cluster c, Group labelsGroup) {
         // Outer glow ring
-        Circle ring = new Circle(c.cx, c.cy, 150);
+        Circle ring = new Circle(c.cx, c.cy, 200);
         ring.setFill(Color.TRANSPARENT);
-        ring.setStroke(c.labelColor.deriveColor(0, 1, 1, 0.12));
+        ring.setStroke(c.labelColor.deriveColor(0, 1, 1, 0.15));
         ring.setStrokeWidth(1.0);
 
         // Cluster name text — centered above ring
-        Text label = new Text(c.cx - 70, c.cy - 158, c.name);
+        Text label = new Text(c.cx - 70, c.cy - 208, c.name);
         label.setFont(Font.font("Monospace", FontWeight.BOLD, 13));
         label.setFill(c.labelColor.deriveColor(0, 1, 1, 0.7));
 
@@ -462,20 +462,19 @@ public class Universe extends Application {
         if (parentNode != null && !p.ppid.equals("0")) {
             // Place near parent with enough spacing
             double angle = Math.random() * 2 * Math.PI;
-            double dist  = 50 + Math.random() * 100;
+            double dist  = 30 + Math.random() * 60;
             x = parentNode.star.getCenterX() + Math.cos(angle) * dist;
             y = parentNode.star.getCenterY() + Math.sin(angle) * dist;
         } else {
-            // Place in cluster zone — spread across full ring area
+            // Place in cluster zone — uniform distribution across ring
             Cluster c = assignCluster(p, clusters, fallback);
             double angle = Math.random() * 2 * Math.PI;
-            // Use sqrt for uniform area distribution (not clumped at center)
-            double dist  = Math.sqrt(Math.random()) * 150;
+            double dist  = Math.sqrt(Math.random()) * 190;
             x = c.cx + Math.cos(angle) * dist;
             y = c.cy + Math.sin(angle) * dist;
         }
 
-        double radius = Math.max(3, Math.min(p.memory / 5000.0, 25));
+        double radius = Math.max(2, Math.min(p.memory / 15000.0, 12));
         Circle star   = new Circle(x, y, radius);
 
         switch (p.state) {
@@ -571,19 +570,31 @@ public class Universe extends Application {
         linesGroup.getChildren().clear();
         lineMap.clear();
 
+        // Count children per parent — skip drawing lines for crowded parents
+        Map<String, Integer> childCount = new HashMap<>();
+        for (ProcessInfo p : processes) {
+            if (!p.ppid.equals("0")) {
+                childCount.merge(p.ppid, 1, Integer::sum);
+            }
+        }
+
         for (ProcessInfo p : processes) {
             StarNode child  = nodeMap.get(p.pid);
             StarNode parent = nodeMap.get(p.ppid);
-            if (child != null && parent != null) {
-                Line line = new Line(
-                    parent.star.getCenterX(), parent.star.getCenterY(),
-                    child .star.getCenterX(), child .star.getCenterY()
-                );
-                line.setStroke(Color.color(1, 1, 1, 0.10));
-                line.setStrokeWidth(0.5);
-                linesGroup.getChildren().add(line);
-                lineMap.put(p.pid, line);
-            }
+            if (child == null || parent == null) continue;
+
+            // Skip lines for parents with many children — too cluttered
+            int count = childCount.getOrDefault(p.ppid, 0);
+            if (count > 15) continue;
+
+            Line line = new Line(
+                parent.star.getCenterX(), parent.star.getCenterY(),
+                child .star.getCenterX(), child .star.getCenterY()
+            );
+            line.setStroke(Color.color(1, 1, 1, 0.12));
+            line.setStrokeWidth(0.5);
+            linesGroup.getChildren().add(line);
+            lineMap.put(p.pid, line);
         }
     }
 
