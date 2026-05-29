@@ -39,11 +39,12 @@ public class Universe extends Application {
         }
     }
 
+    // Sector counter — spreads root-level processes around the canvas
+    private int sectorIndex = 0;
+
     @Override
     public void start(Stage stage) {
-
         try {
-
             javafx.geometry.Rectangle2D screen =
                 javafx.stage.Screen.getPrimary().getVisualBounds();
 
@@ -54,7 +55,7 @@ public class Universe extends Application {
 
             // Tooltip
             Rectangle tooltipBg = new Rectangle();
-            tooltipBg.setFill(Color.color(0, 0, 0, 0.80));
+            tooltipBg.setFill(Color.color(0, 0, 0, 0.85));
             tooltipBg.setArcWidth(6);
             tooltipBg.setArcHeight(6);
             tooltipBg.setVisible(false);
@@ -72,27 +73,27 @@ public class Universe extends Application {
                 t.setVisible(false);
             }
 
-            // Two separate groups: lines behind, stars in front
             Group linesGroup = new Group();
             Group starsGroup = new Group();
+            Group universe   = new Group(linesGroup, starsGroup);
 
-            // Outer group holds both, gets zoom/pan transforms
-            Group universe = new Group(linesGroup, starsGroup);
             Scale scaleTransform = new Scale(1.0, 1.0, 0, 0);
             universe.getTransforms().add(scaleTransform);
 
             Map<String, StarNode> nodeMap = new HashMap<>();
             Map<String, Line>     lineMap = new HashMap<>();
 
-            // Initial load
+            // Sort processes: parents before children so placement works correctly
             List<ProcessInfo> initial = ProcessMonitor.getProcesses();
-            for (ProcessInfo p : initial) {
+            List<ProcessInfo> sorted  = sortByHierarchy(initial);
+
+            for (ProcessInfo p : sorted) {
                 addStar(p, starsGroup, nodeMap, VW, VH,
                         tooltipBg, tooltipName, tooltipPid, tooltipPpid,
                         tooltipState, tooltipMem, W, H);
             }
-            assignOrbits(initial, nodeMap);
-            rebuildLines(initial, nodeMap, lineMap, linesGroup);
+            assignOrbits(sorted, nodeMap);
+            rebuildLines(sorted, nodeMap, lineMap, linesGroup);
 
             Pane root = new Pane(universe);
             root.getChildren().addAll(
@@ -103,26 +104,22 @@ public class Universe extends Application {
             universe.setTranslateX(-(VW - W) / 2);
             universe.setTranslateY(-(VH - H) / 2);
 
-            // Animation timer — orbit motion
+            // Animation timer
             final long[] lastTime = {0};
-
             AnimationTimer orbitTimer = new AnimationTimer() {
                 @Override
                 public void handle(long now) {
                     try {
                         if (lastTime[0] == 0) { lastTime[0] = now; return; }
-
                         double dt = (now - lastTime[0]) / 1_000_000_000.0;
                         lastTime[0] = now;
 
                         for (StarNode sn : nodeMap.values()) {
                             if (!sn.orbiting || sn.parentPid == null) continue;
-
                             StarNode parent = nodeMap.get(sn.parentPid);
                             if (parent == null) continue;
 
                             sn.orbitAngle += sn.orbitSpeed * dt;
-
                             double nx = parent.star.getCenterX()
                                         + Math.cos(sn.orbitAngle) * sn.orbitRadius;
                             double ny = parent.star.getCenterY()
@@ -136,7 +133,6 @@ public class Universe extends Application {
                             sn.ppidLabel.setX(nx - 10); sn.ppidLabel.setY(ny + r + 23);
                         }
 
-                        // Update line endpoints
                         for (Map.Entry<String, Line> entry : lineMap.entrySet()) {
                             StarNode sn = nodeMap.get(entry.getKey());
                             if (sn == null || sn.parentPid == null) continue;
@@ -148,23 +144,20 @@ public class Universe extends Application {
                             line.setEndX(sn.star.getCenterX());
                             line.setEndY(sn.star.getCenterY());
                         }
-
                     } catch (Exception ex) {
-                        System.err.println("AnimationTimer error: " + ex.getMessage());
+                        System.err.println("AnimationTimer: " + ex.getMessage());
                     }
                 }
             };
             orbitTimer.start();
 
-            // Realtime update every 3 seconds
+            // Realtime ticker
             Timeline ticker = new Timeline(new KeyFrame(Duration.seconds(3), e -> {
                 try {
                     List<ProcessInfo> current = ProcessMonitor.getProcesses();
-
                     Map<String, ProcessInfo> currentMap = new HashMap<>();
                     for (ProcessInfo p : current) currentMap.put(p.pid, p);
 
-                    // Remove dead
                     List<String> dead = new ArrayList<>();
                     for (String pid : nodeMap.keySet()) {
                         if (!currentMap.containsKey(pid)) dead.add(pid);
@@ -174,16 +167,17 @@ public class Universe extends Application {
                         starsGroup.getChildren().removeAll(sn.star, sn.pidLabel, sn.ppidLabel);
                     }
 
-                    // Add new
+                    List<ProcessInfo> newProcs = new ArrayList<>();
                     for (ProcessInfo p : current) {
-                        if (!nodeMap.containsKey(p.pid)) {
-                            addStar(p, starsGroup, nodeMap, VW, VH,
-                                    tooltipBg, tooltipName, tooltipPid, tooltipPpid,
-                                    tooltipState, tooltipMem, W, H);
-                        }
+                        if (!nodeMap.containsKey(p.pid)) newProcs.add(p);
+                    }
+                    List<ProcessInfo> sortedNew = sortByHierarchy(newProcs);
+                    for (ProcessInfo p : sortedNew) {
+                        addStar(p, starsGroup, nodeMap, VW, VH,
+                                tooltipBg, tooltipName, tooltipPid, tooltipPpid,
+                                tooltipState, tooltipMem, W, H);
                     }
 
-                    // Update existing
                     for (ProcessInfo p : current) {
                         StarNode sn = nodeMap.get(p.pid);
                         if (sn == null) continue;
@@ -201,7 +195,7 @@ public class Universe extends Application {
                     rebuildLines(current, nodeMap, lineMap, linesGroup);
 
                 } catch (Exception ex) {
-                    System.err.println("Ticker error: " + ex.getMessage());
+                    System.err.println("Ticker: " + ex.getMessage());
                 }
             }));
             ticker.setCycleCount(Timeline.INDEFINITE);
@@ -209,9 +203,6 @@ public class Universe extends Application {
 
             // Zoom
             final double ZOOM_FACTOR = 1.15;
-            final double MIN_SCALE   = 0.05;
-            final double MAX_SCALE   = 10.0;
-
             root.setOnScroll(e -> {
                 double delta = e.getDeltaY();
                 if (delta == 0) delta = -e.getTextDeltaY();
@@ -219,30 +210,29 @@ public class Universe extends Application {
 
                 double oldScale = scaleTransform.getX();
                 double newScale = (delta < 0)
-                    ? Math.min(oldScale * ZOOM_FACTOR, MAX_SCALE)
-                    : Math.max(oldScale / ZOOM_FACTOR, MIN_SCALE);
+                    ? Math.min(oldScale * ZOOM_FACTOR, 10.0)
+                    : Math.max(oldScale / ZOOM_FACTOR, 0.05);
 
-                double cursorX = e.getX();
-                double cursorY = e.getY();
-                double localX  = (cursorX - universe.getTranslateX()) / oldScale;
-                double localY  = (cursorY - universe.getTranslateY()) / oldScale;
+                double cx = e.getX(), cy = e.getY();
+                double lx = (cx - universe.getTranslateX()) / oldScale;
+                double ly = (cy - universe.getTranslateY()) / oldScale;
 
                 scaleTransform.setX(newScale);
                 scaleTransform.setY(newScale);
-                universe.setTranslateX(cursorX - localX * newScale);
-                universe.setTranslateY(cursorY - localY * newScale);
+                universe.setTranslateX(cx - lx * newScale);
+                universe.setTranslateY(cy - ly * newScale);
                 e.consume();
             });
 
             // Pan
-            final double[] dragStart = new double[2];
+            final double[] drag = new double[2];
             root.setOnMousePressed(e -> {
-                dragStart[0] = e.getSceneX() - universe.getTranslateX();
-                dragStart[1] = e.getSceneY() - universe.getTranslateY();
+                drag[0] = e.getSceneX() - universe.getTranslateX();
+                drag[1] = e.getSceneY() - universe.getTranslateY();
             });
             root.setOnMouseDragged(e -> {
-                universe.setTranslateX(e.getSceneX() - dragStart[0]);
-                universe.setTranslateY(e.getSceneY() - dragStart[1]);
+                universe.setTranslateX(e.getSceneX() - drag[0]);
+                universe.setTranslateY(e.getSceneY() - drag[1]);
             });
 
             // Double-click reset
@@ -262,13 +252,38 @@ public class Universe extends Application {
             stage.show();
 
         } catch (Exception ex) {
-            System.err.println("Fatal start() error: " + ex.getMessage());
+            System.err.println("Fatal: " + ex.getMessage());
             ex.printStackTrace();
         }
     }
 
-    private void assignOrbits(List<ProcessInfo> processes, Map<String, StarNode> nodeMap) {
+    // Sort processes so parents always come before their children
+    private List<ProcessInfo> sortByHierarchy(List<ProcessInfo> processes) {
+        Map<String, ProcessInfo> byPid = new HashMap<>();
+        for (ProcessInfo p : processes) byPid.put(p.pid, p);
 
+        List<ProcessInfo> sorted  = new ArrayList<>();
+        List<ProcessInfo> pending = new ArrayList<>(processes);
+        int maxPasses = processes.size() + 1;
+
+        while (!pending.isEmpty() && maxPasses-- > 0) {
+            List<ProcessInfo> next = new ArrayList<>();
+            for (ProcessInfo p : pending) {
+                // Add if parent is already placed, or has no parent in this list
+                if (p.ppid.equals("0") || !byPid.containsKey(p.ppid)
+                        || sorted.stream().anyMatch(s -> s.pid.equals(p.ppid))) {
+                    sorted.add(p);
+                } else {
+                    next.add(p);
+                }
+            }
+            pending = next;
+        }
+        sorted.addAll(pending); // add any remaining
+        return sorted;
+    }
+
+    private void assignOrbits(List<ProcessInfo> processes, Map<String, StarNode> nodeMap) {
         Map<String, List<String>> childrenOf = new HashMap<>();
         for (ProcessInfo p : processes) {
             if (!p.ppid.equals("0") && nodeMap.containsKey(p.ppid)) {
@@ -277,25 +292,24 @@ public class Universe extends Application {
         }
 
         for (Map.Entry<String, List<String>> entry : childrenOf.entrySet()) {
-
             String       parentPid = entry.getKey();
             List<String> children  = entry.getValue();
             int          count     = children.size();
 
-            if (count > 50) continue;
+            // Skip very large groups — they'd make huge rings
+            if (count > 40) continue;
 
-            double orbitRadius = Math.min(35 + count * 6, 150);
+            double orbitRadius = Math.min(40 + count * 7, 160);
 
             for (int i = 0; i < count; i++) {
                 StarNode sn = nodeMap.get(children.get(i));
                 if (sn == null) continue;
-
                 if (!sn.orbiting) {
                     sn.orbiting    = true;
                     sn.parentPid   = parentPid;
                     sn.orbitRadius = orbitRadius;
                     sn.orbitAngle  = (2 * Math.PI / count) * i;
-                    sn.orbitSpeed  = 0.6 / Math.sqrt(orbitRadius / 35.0);
+                    sn.orbitSpeed  = 0.5 / Math.sqrt(orbitRadius / 40.0);
                 } else {
                     sn.orbitRadius = orbitRadius;
                 }
@@ -315,16 +329,30 @@ public class Universe extends Application {
 
         double x, y;
         StarNode parentNode = nodeMap.get(p.ppid);
+
         if (parentNode != null && !p.ppid.equals("0")) {
+            // Place near parent
             double angle = Math.random() * 2 * Math.PI;
-            double dist  = 60 + Math.random() * 90;
+            double dist  = 50 + Math.random() * 80;
             x = parentNode.star.getCenterX() + Math.cos(angle) * dist;
             y = parentNode.star.getCenterY() + Math.sin(angle) * dist;
             x = Math.max(10, Math.min(VW - 10, x));
             y = Math.max(10, Math.min(VH - 10, y));
         } else {
-            x = Math.random() * (VW - 20) + 10;
-            y = Math.random() * (VH - 20) + 10;
+            // Root process — spread across canvas in sectors
+            // Divide canvas into a grid of sectors
+            int cols = 6;
+            int rows = 4;
+            int sector = (sectorIndex++) % (cols * rows);
+            int col = sector % cols;
+            int row = sector / cols;
+
+            double cellW = VW / cols;
+            double cellH = VH / rows;
+
+            // Place in center of sector with some jitter
+            x = col * cellW + cellW * 0.2 + Math.random() * cellW * 0.6;
+            y = row * cellH + cellH * 0.2 + Math.random() * cellH * 0.6;
         }
 
         double radius = Math.max(3, Math.min(p.memory / 5000.0, 25));
@@ -338,7 +366,22 @@ public class Universe extends Application {
             default:  star.setFill(Color.WHITE);
         }
 
+        // Labels — hidden by default, shown on hover
+        Text pidLabel  = new Text(x - 10, y + radius + 12, "PID:" + p.pid);
+        pidLabel.setFont(Font.font("Monospace", 9));
+        pidLabel.setFill(Color.color(1, 1, 1, 0.8));
+        pidLabel.setVisible(false);
+
+        Text ppidLabel = new Text(x - 10, y + radius + 23, "PAR:" + p.ppid);
+        ppidLabel.setFont(Font.font("Monospace", 9));
+        ppidLabel.setFill(Color.color(1, 1, 1, 0.5));
+        ppidLabel.setVisible(false);
+
         star.setOnMouseEntered(e -> {
+            // Show inline labels
+            pidLabel .setVisible(true);
+            ppidLabel.setVisible(true);
+
             String stateFull;
             switch (p.state) {
                 case "R": stateFull = "Running";  break;
@@ -382,22 +425,18 @@ public class Universe extends Application {
         });
 
         star.setOnMouseExited(e -> {
+            pidLabel .setVisible(false);
+            ppidLabel.setVisible(false);
+
             tooltipBg   .setVisible(false);
             tooltipName .setVisible(false);
             tooltipPid  .setVisible(false);
             tooltipPpid .setVisible(false);
             tooltipState.setVisible(false);
             tooltipMem  .setVisible(false);
+
             star.setOpacity(1.0);
         });
-
-        Text pidLabel  = new Text(x - 10, y + radius + 12, "PID:" + p.pid);
-        pidLabel.setFont(Font.font("Monospace", 9));
-        pidLabel.setFill(Color.color(1, 1, 1, 0.6));
-
-        Text ppidLabel = new Text(x - 10, y + radius + 23, "PAR:" + p.ppid);
-        ppidLabel.setFont(Font.font("Monospace", 9));
-        ppidLabel.setFill(Color.color(1, 1, 1, 0.35));
 
         starsGroup.getChildren().addAll(pidLabel, ppidLabel, star);
         nodeMap.put(p.pid, new StarNode(star, pidLabel, ppidLabel));
@@ -415,14 +454,13 @@ public class Universe extends Application {
         for (ProcessInfo p : processes) {
             StarNode child  = nodeMap.get(p.pid);
             StarNode parent = nodeMap.get(p.ppid);
-
             if (child != null && parent != null) {
                 Line line = new Line(
                     parent.star.getCenterX(), parent.star.getCenterY(),
                     child .star.getCenterX(), child .star.getCenterY()
                 );
-                line.setStroke(Color.color(1, 1, 1, 0.15));
-                line.setStrokeWidth(0.6);
+                line.setStroke(Color.color(1, 1, 1, 0.12));
+                line.setStrokeWidth(0.5);
                 linesGroup.getChildren().add(line);
                 lineMap.put(p.pid, line);
             }
