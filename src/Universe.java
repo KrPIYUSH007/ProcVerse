@@ -163,6 +163,9 @@ public class Universe extends Application {
             for (ProcessInfo p : sorted) addStar3D(p);
             assignOrbits(sorted);
 
+            // Generate background starfield once
+            initBackgroundStars(W, H);
+
             // -----------------------------------------------
             // Main render + orbit loop
             // -----------------------------------------------
@@ -375,9 +378,35 @@ public class Universe extends Application {
         return new double[]{sx, sy, scale};
     }
 
-    // -----------------------------------------------
-    // Draw one frame
-    // -----------------------------------------------
+    // Background starfield — generated once, drawn every frame
+    double[] bgStarX, bgStarY, bgStarSize, bgStarOpacity;
+
+    void initBackgroundStars(double W, double H) {
+        int count = 1800;
+        bgStarX       = new double[count];
+        bgStarY       = new double[count];
+        bgStarSize    = new double[count];
+        bgStarOpacity = new double[count];
+
+        for (int i = 0; i < count; i++) {
+            bgStarX[i]       = Math.random() * W;
+            bgStarY[i]       = Math.random() * H;
+            // Mix of tiny pinpoints and slightly larger stars
+            bgStarSize[i]    = Math.random() < 0.85 ? Math.random() * 1.2 : 1.5 + Math.random() * 1.5;
+            bgStarOpacity[i] = 0.15 + Math.random() * 0.65;
+        }
+    }
+
+    void drawBackgroundStars() {
+        for (int i = 0; i < bgStarX.length; i++) {
+            double s = bgStarSize[i];
+            double o = bgStarOpacity[i];
+            // Slightly warm/cool tint variation
+            double tint = (i % 3 == 0) ? 0.85 : 1.0;
+            gc.setFill(Color.color(tint, tint, 1.0, o));
+            gc.fillOval(bgStarX[i] - s/2, bgStarY[i] - s/2, s, s);
+        }
+    }
     void drawFrame(double W, double H, Star3D hovered,
                    Rectangle tooltipBg,
                    Text tooltipName, Text tooltipPid, Text tooltipPpid,
@@ -385,6 +414,9 @@ public class Universe extends Application {
 
         gc.setFill(Color.BLACK);
         gc.fillRect(0, 0, W, H);
+
+        // Background starfield
+        drawBackgroundStars();
 
         // Collect projected stars, sort by depth (far first)
         List<double[]> projected = new ArrayList<>(); // [sx,sy,scale,starIndex]
