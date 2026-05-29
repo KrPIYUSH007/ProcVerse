@@ -74,49 +74,53 @@ public class Universe extends Application {
 
             double W  = screen.getWidth();
             double H  = screen.getHeight();
-            double VW = W * 3;
-            double VH = H * 3;
+            double VW = W;   // no virtual canvas — clusters fit on screen
+            double VH = H;
 
             // -----------------------------------------------
-            // Define clusters — positions spread across canvas
+            // Define clusters — evenly spaced in a 3x2 grid on screen
             // -----------------------------------------------
+            double padX = W * 0.18;
+            double padY = H * 0.22;
+            double stepX = (W - padX * 2) / 2;
+            double stepY = (H - padY * 2) / 1;
+
             Cluster[] clusters = {
                 new Cluster("⚙ System Services",
                     new String[]{"systemd", "init", "dbus", "udev", "cron",
                                  "rsyslog", "syslog", "polkit", "accounts"},
-                    VW * 0.20, VH * 0.25, Color.color(0.4, 0.8, 1.0)),
+                    padX,            padY,            Color.color(0.4, 0.8, 1.0)),
 
                 new Cluster("🌐 Network Services",
                     new String[]{"ssh", "sshd", "network", "dhcp", "dns",
-                                 "avahi", "nm-", "wpa", "curl", "wget", "nginx", "apache"},
-                    VW * 0.50, VH * 0.18, Color.color(0.3, 1.0, 0.5)),
+                                 "avahi", "nm-", "wpa", "nginx", "apache"},
+                    padX + stepX,    padY,            Color.color(0.3, 1.0, 0.5)),
 
-                new Cluster("☕ Java Processes",
-                    new String[]{"java", "javac", "gradle", "maven", "mvn",
-                                 "kotlin", "scala"},
-                    VW * 0.80, VH * 0.25, Color.color(1.0, 0.7, 0.2)),
+                new Cluster("☕ Java / Dev",
+                    new String[]{"java", "javac", "gradle", "maven",
+                                 "kotlin", "python", "node", "code"},
+                    padX + stepX*2,  padY,            Color.color(1.0, 0.7, 0.2)),
 
                 new Cluster("🖥 User Apps",
-                    new String[]{"bash", "sh", "zsh", "fish", "terminal",
-                                 "gnome", "xterm", "konsole", "vim", "nano",
-                                 "code", "gedit", "python", "node"},
-                    VW * 0.25, VH * 0.70, Color.color(0.9, 0.4, 0.9)),
+                    new String[]{"bash", "sh", "zsh", "fish",
+                                 "gnome", "xterm", "konsole", "vim",
+                                 "nano", "gedit", "terminal"},
+                    padX,            padY + stepY,    Color.color(0.9, 0.4, 0.9)),
 
                 new Cluster("🌍 Browser",
-                    new String[]{"firefox", "chrome", "chromium", "brave",
-                                 "opera", "webkit", "electron"},
-                    VW * 0.55, VH * 0.65, Color.color(1.0, 0.5, 0.3)),
+                    new String[]{"firefox", "chrome", "chromium",
+                                 "brave", "opera", "electron"},
+                    padX + stepX,    padY + stepY,    Color.color(1.0, 0.5, 0.3)),
 
                 new Cluster("🔧 Kernel Threads",
-                    new String[]{"kthread", "kworker", "ksoftirq", "migration",
-                                 "watchdog", "rcu", "irq"},
-                    VW * 0.80, VH * 0.70, Color.color(0.5, 0.5, 0.7)),
+                    new String[]{"kthread", "kworker", "ksoftirq",
+                                 "migration", "watchdog", "rcu", "irq"},
+                    padX + stepX*2,  padY + stepY,    Color.color(0.5, 0.6, 0.9)),
             };
 
-            // Fallback cluster for unmatched processes
             Cluster fallback = new Cluster("✦ Other",
                 new String[]{},
-                VW * 0.50, VH * 0.45, Color.color(0.6, 0.6, 0.6));
+                W * 0.5, H * 0.5, Color.color(0.5, 0.5, 0.5));
 
             // -----------------------------------------------
             // Tooltip
@@ -175,9 +179,9 @@ public class Universe extends Application {
                 tooltipPpid, tooltipState, tooltipMem
             );
 
-            // Center view on middle of canvas
-            universe.setTranslateX(-(VW - W) / 2);
-            universe.setTranslateY(-(VH - H) / 2);
+            // No offset needed — clusters are placed directly on screen coords
+            universe.setTranslateX(0);
+            universe.setTranslateY(0);
 
             // -----------------------------------------------
             // Animation timer — orbit motion
@@ -320,8 +324,8 @@ public class Universe extends Application {
                 if (e.getClickCount() == 2) {
                     scaleTransform.setX(1.0);
                     scaleTransform.setY(1.0);
-                    universe.setTranslateX(-(VW - W) / 2);
-                    universe.setTranslateY(-(VH - H) / 2);
+                    universe.setTranslateX(0);
+                    universe.setTranslateY(0);
                 }
             });
 
@@ -349,15 +353,15 @@ public class Universe extends Application {
 
     private void addClusterLabel(Cluster c, Group labelsGroup) {
         // Outer glow ring
-        Circle ring = new Circle(c.cx, c.cy, 180);
+        Circle ring = new Circle(c.cx, c.cy, 150);
         ring.setFill(Color.TRANSPARENT);
-        ring.setStroke(c.labelColor.deriveColor(0, 1, 1, 0.08));
-        ring.setStrokeWidth(1.5);
+        ring.setStroke(c.labelColor.deriveColor(0, 1, 1, 0.12));
+        ring.setStrokeWidth(1.0);
 
-        // Cluster name text
-        Text label = new Text(c.cx - 80, c.cy - 195, c.name);
-        label.setFont(Font.font("Monospace", FontWeight.BOLD, 14));
-        label.setFill(c.labelColor.deriveColor(0, 1, 1, 0.6));
+        // Cluster name text — centered above ring
+        Text label = new Text(c.cx - 70, c.cy - 158, c.name);
+        label.setFont(Font.font("Monospace", FontWeight.BOLD, 13));
+        label.setFill(c.labelColor.deriveColor(0, 1, 1, 0.7));
 
         labelsGroup.getChildren().addAll(ring, label);
     }
@@ -456,16 +460,17 @@ public class Universe extends Application {
         StarNode parentNode = nodeMap.get(p.ppid);
 
         if (parentNode != null && !p.ppid.equals("0")) {
-            // Place near parent
+            // Place near parent with enough spacing
             double angle = Math.random() * 2 * Math.PI;
-            double dist  = 40 + Math.random() * 70;
+            double dist  = 50 + Math.random() * 100;
             x = parentNode.star.getCenterX() + Math.cos(angle) * dist;
             y = parentNode.star.getCenterY() + Math.sin(angle) * dist;
         } else {
-            // Place in cluster zone
+            // Place in cluster zone — spread across full ring area
             Cluster c = assignCluster(p, clusters, fallback);
             double angle = Math.random() * 2 * Math.PI;
-            double dist  = Math.random() * 160;
+            // Use sqrt for uniform area distribution (not clumped at center)
+            double dist  = Math.sqrt(Math.random()) * 150;
             x = c.cx + Math.cos(angle) * dist;
             y = c.cy + Math.sin(angle) * dist;
         }
