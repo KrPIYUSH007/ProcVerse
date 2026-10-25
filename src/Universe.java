@@ -41,7 +41,10 @@ public class Universe extends Application {
 
         boolean matches(String procName) {
             String lower = procName.toLowerCase();
-            for (String kw : keywords) if (lower.contains(kw)) return true;
+            for (String kw : keywords) {
+                // Short shell names must not match helpers such as crashpad.
+                if (kw.equals("sh") ? lower.equals(kw) : lower.contains(kw)) return true;
+            }
             return false;
         }
     }
@@ -54,6 +57,9 @@ public class Universe extends Application {
         double x, y, z;       // 3D world position
         double baseRadius;    // radius at z=0
         String parentPid;
+        Cluster cluster;
+        int childCount;
+        int depth;
 
         // Orbit
         boolean orbiting    = false;
@@ -112,6 +118,7 @@ public class Universe extends Application {
 
     // Star map
     Map<String, Star3D> starMap = new HashMap<>();
+    List<Star3D> orbitOrder = new ArrayList<>();
 
     // Canvas for drawing
     Canvas canvas;
@@ -183,7 +190,7 @@ public class Universe extends Application {
                     camRotY += autoRotY;
 
                     // Advance orbits
-                    for (Star3D s : starMap.values()) {
+                    for (Star3D s : orbitOrder) {
                         if (!s.orbiting || s.parentPid == null) continue;
                         Star3D parent = starMap.get(s.parentPid);
                         if (parent == null) continue;
@@ -469,7 +476,7 @@ public class Universe extends Application {
             Star3D s  = stars.get(i);
             double sx = proj[0], sy = proj[1], scale = proj[2];
 
-            double r = Math.max(1.5, s.baseRadius * scale);
+            double r = Math.max(1.5, visualRadius(s) * scale);
 
             // Depth-based brightness
             double brightness = Math.min(1.0, scale * 1.2);
@@ -494,6 +501,12 @@ public class Universe extends Application {
                 rgb[2] * brightness
             ));
             gc.fillOval(sx - r, sy - r, r * 2, r * 2);
+
+            if (s.childCount > 0) {
+                gc.setFont(Font.font("Monospace", 10));
+                gc.setFill(Color.color(1, 1, 1, 0.8));
+                gc.fillText(s.info.name + " (" + s.childCount + ")", sx + r + 5, sy - r);
+            }
 
             // Highlight hovered star
             if (s == hovered) {
@@ -539,7 +552,7 @@ public class Universe extends Application {
             double[] p = project(s.x, s.y, s.z);
             if (p == null) continue;
 
-            double r    = Math.max(1.5, s.baseRadius * p[2]);
+            double r    = Math.max(1.5, visualRadius(s) * p[2]);
             double dist = Math.hypot(mx - p[0], my - p[1]);
 
             if (dist < Math.max(r + 4, minDist)) {
@@ -561,6 +574,10 @@ public class Universe extends Application {
             case "T": return new double[]{1.0, 0.6, 0.0}; // orange
             default:  return new double[]{1.0, 1.0, 1.0}; // white
         }
+    }
+
+    double visualRadius(Star3D s) {
+        return s.childCount > 0 ? Math.max(7, s.baseRadius * 1.5) : s.baseRadius;
     }
 
     // -----------------------------------------------
@@ -605,17 +622,35 @@ public class Universe extends Application {
     // Assign orbit parameters
     // -----------------------------------------------
     void assignOrbits(List<ProcessInfo> processes) {
+        List<ProcessInfo> sorted = sortByHierarchy(processes);
+        orbitOrder.clear();
         Map<String, List<String>> childrenOf = new HashMap<>();
-        for (ProcessInfo p : processes) {
+        for (Star3D star : starMap.values()) star.childCount = 0;
+        for (ProcessInfo p : sorted) {
             Star3D star = starMap.get(p.pid);
             Star3D parent = starMap.get(p.ppid);
             if (star == null) continue;
-            if (!p.ppid.equals(star.parentPid)) star.orbiting = false;
+            Cluster category = assignCluster(p);
+            // Unclassified helpers belong to their parent's process family.
+            if (category == FALLBACK && parent != null && parent.cluster != null)
+                category = parent.cluster;
+            boolean sameFamily = parent != null && parent.cluster == category
+                    && orbitOrder.contains(parent);
+            if (!p.ppid.equals(star.parentPid) || star.cluster != category)
+                star.orbiting = false;
+            if (!sameFamily && (star.cluster != category || star.orbiting)) {
+                // Stable family anchors spread through the category region.
+                double angle = (p.pid.hashCode() & 0xffff) * 2.399963229728653;
+                double radius = 35 + Math.floorMod(p.pid.hashCode(), 100);
+                star.x = category.cx3d + Math.cos(angle) * radius;
+                star.y = category.cy3d + Math.sin(angle * 0.7) * 35;
+                star.z = category.cz3d + Math.sin(angle) * radius;
+            }
+            star.cluster = category;
             star.parentPid = p.ppid;
-            // Keep each category in its own region; cross-category ancestry
-            // is still shown by connection lines, rather than orbital motion.
-            if (!p.ppid.equals("0") && parent != null
-                    && assignCluster(p) == assignCluster(parent.info)) {
+            star.depth = sameFamily ? parent.depth + 1 : 0;
+            orbitOrder.add(star);
+            if (sameFamily) {
                 childrenOf.computeIfAbsent(p.ppid, k -> new ArrayList<>()).add(p.pid);
             } else {
                 star.orbiting = false;
@@ -626,26 +661,29 @@ public class Universe extends Application {
             String       parentPid = entry.getKey();
             List<String> children  = entry.getValue();
             int          count     = children.size();
-            if (count > 40) {
-                for (String pid : children) starMap.get(pid).orbiting = false;
-                continue;
-            }
-
-            double orbitRadius = Math.min(40 + count * 6, 150);
+            Star3D parent = starMap.get(parentPid);
+            parent.childCount = count;
+            children.sort(String::compareTo);
 
             for (int i = 0; i < count; i++) {
                 Star3D sn = starMap.get(children.get(i));
                 if (sn == null) continue;
+                // Multiple rings keep large families orbiting too. Nested
+                // systems use smaller orbits around their immediate parent.
+                int ring = i / 12;
+                int ringCount = Math.min(12, count - ring * 12);
+                double orbitRadius = Math.max(16,
+                        (65 + ring * 24) * Math.pow(0.55, parent.depth));
                 if (!sn.orbiting) {
                     sn.orbiting    = true;
                     sn.parentPid   = parentPid;
                     sn.orbitRadius = orbitRadius;
-                    sn.orbitAngle  = (2 * Math.PI / count) * i;
-                    sn.orbitSpeed  = 0.4 / Math.sqrt(orbitRadius / 40.0);
+                    sn.orbitAngle  = (2 * Math.PI / ringCount) * (i % 12);
                     sn.orbitTilt   = (Math.random() - 0.5) * 0.8; // random tilt
                 } else {
                     sn.orbitRadius = orbitRadius;
                 }
+                sn.orbitSpeed = 0.4 / Math.sqrt(orbitRadius / 40.0);
             }
         }
     }
