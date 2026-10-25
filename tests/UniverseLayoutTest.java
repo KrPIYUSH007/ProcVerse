@@ -25,6 +25,11 @@ public class UniverseLayoutTest {
         for (ProcessInfo p : universe.sortByHierarchy(processes)) universe.addStar3D(p);
         universe.assignOrbits(processes);
 
+        for (Universe.Cluster cluster : Universe.CLUSTERS)
+            check(cluster.radius == 220, "Equal category overview regions");
+        check(universe.camRotX == 0 && universe.autoRotY == 0,
+                "Overview faces viewer and stays stationary");
+
         Universe.Star3D browser = universe.starMap.get("3");
         Universe.Star3D helper = universe.starMap.get("4");
         check(browser.cluster == Universe.CLUSTERS[4], "Browser category");

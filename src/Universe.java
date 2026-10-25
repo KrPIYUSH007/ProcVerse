@@ -106,13 +106,13 @@ public class Universe extends Application {
         new String[]{}, 0, 0, 0, 0.5, 0.5, 0.5);
 
     // Camera state
-    double camRotX  = 0.3;   // tilt (radians)
+    double camRotX  = 0;     // start with all category regions facing the viewer
     double camRotY  = 0;     // spin (radians)
     double camZoom  = 800;   // perspective focal length
     double camDist  = 0;     // camera forward/back offset (moves into scene)
 
     // Auto-rotation speed
-    double autoRotY = 0.0003;
+    double autoRotY = 0;
 
     // Drag state
     double dragStartX, dragStartY;
@@ -274,7 +274,7 @@ public class Universe extends Application {
             });
 
             canvas.setOnMouseReleased(e -> {
-                autoRotY = 0.0003; // resume auto-rotate
+                autoRotY = 0; // keep the overview stationary after navigation
             });
 
             // -----------------------------------------------
@@ -347,16 +347,16 @@ public class Universe extends Application {
             // Double-click — reset camera
             canvas.setOnMouseClicked(e -> {
                 if (e.getClickCount() == 2) {
-                    camRotX  = 0.3;
+                    camRotX  = 0;
                     camRotY  = 0;
                     camZoom  = 800;
                     camDist  = 0;
-                    autoRotY = 0.0003;
+                    autoRotY = 0;
                 }
             });
 
             Scene scene = new Scene(root, W, H, Color.BLACK);
-            stage.setTitle("ProcVerse 🌌  |  Drag: rotate   Scroll: zoom   Double-click: reset");
+            stage.setTitle("ProcVerse | Drag: rotate   Scroll: zoom   Double-click: reset");
             stage.setScene(scene);
             stage.setMaximized(true);
             stage.show();
@@ -771,6 +771,21 @@ public class Universe extends Application {
             double height = y + rowHeight;
             c.radius = Math.max(75, Math.hypot(width, height) / 2 + 20);
             for (Star3D s : families) { s.x -= width / 2; s.y -= height / 2; }
+            // Each category gets an equal overview region. A deeply nested
+            // systemd family must not shrink every other category on screen.
+            double categoryScale = 220 / c.radius;
+            for (Star3D s : orbitOrder) {
+                if (s.cluster != c) continue;
+                s.extent *= categoryScale;
+                if (s.orbiting) {
+                    s.orbitRadius *= categoryScale;
+                    s.orbitSpeed = 0.4 / Math.sqrt(Math.max(1, s.orbitRadius) / 40.0);
+                } else {
+                    s.x *= categoryScale;
+                    s.y *= categoryScale;
+                }
+            }
+            c.radius = 220;
         }
         // Separate category regions using their measured family bounds.
         double[] columnWidths = new double[3], rowHeights = new double[3];
