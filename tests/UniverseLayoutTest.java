@@ -42,6 +42,23 @@ public class UniverseLayoutTest {
         double x = browser.x;
         universe.assignOrbits(processes);
         check(browser.x == x, "Refresh preserves family anchor");
+        for (Universe.Star3D a : universe.orbitOrder) {
+            if (a.orbiting) {
+                Universe.Star3D parent = universe.starMap.get(a.parentPid);
+                check(a.orbitRadius + a.extent <= parent.extent + 0.001,
+                        "Parent bounds contain complete child systems");
+            } else {
+                for (Universe.Star3D b : universe.orbitOrder) {
+                    if (a == b || b.orbiting) continue;
+                    check(Math.hypot(a.x - b.x, a.y - b.y) >= a.extent + b.extent,
+                            "Root family bounds do not overlap");
+                }
+            }
+        }
+        List<double[]> labels = new ArrayList<>();
+        check(Universe.reserveLabel(labels, 10, 20, 80, 13), "First label fits");
+        check(!Universe.reserveLabel(labels, 20, 22, 80, 13), "Overlapping label suppressed");
+        check(Universe.reserveLabel(labels, 150, 20, 80, 13), "Separate label fits");
 
         helper.info.ppid = "1";
         universe.assignOrbits(processes);
