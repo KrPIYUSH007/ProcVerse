@@ -570,7 +570,8 @@ public class Universe extends Application {
         Star3D parentStar = starMap.get(p.ppid);
         double x, y, z;
 
-        if (parentStar != null && !p.ppid.equals("0")) {
+        if (parentStar != null && !p.ppid.equals("0")
+                && assignCluster(p) == assignCluster(parentStar.info)) {
             // Spawn near parent
             double angle1 = Math.random() * 2 * Math.PI;
             double angle2 = Math.random() * 2 * Math.PI;
@@ -606,15 +607,29 @@ public class Universe extends Application {
     void assignOrbits(List<ProcessInfo> processes) {
         Map<String, List<String>> childrenOf = new HashMap<>();
         for (ProcessInfo p : processes) {
-            if (!p.ppid.equals("0") && starMap.containsKey(p.ppid))
+            Star3D star = starMap.get(p.pid);
+            Star3D parent = starMap.get(p.ppid);
+            if (star == null) continue;
+            if (!p.ppid.equals(star.parentPid)) star.orbiting = false;
+            star.parentPid = p.ppid;
+            // Keep each category in its own region; cross-category ancestry
+            // is still shown by connection lines, rather than orbital motion.
+            if (!p.ppid.equals("0") && parent != null
+                    && assignCluster(p) == assignCluster(parent.info)) {
                 childrenOf.computeIfAbsent(p.ppid, k -> new ArrayList<>()).add(p.pid);
+            } else {
+                star.orbiting = false;
+            }
         }
 
         for (Map.Entry<String, List<String>> entry : childrenOf.entrySet()) {
             String       parentPid = entry.getKey();
             List<String> children  = entry.getValue();
             int          count     = children.size();
-            if (count > 40) continue;
+            if (count > 40) {
+                for (String pid : children) starMap.get(pid).orbiting = false;
+                continue;
+            }
 
             double orbitRadius = Math.min(40 + count * 6, 150);
 
