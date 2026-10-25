@@ -25,13 +25,21 @@ public class UniverseLayoutTest {
         for (ProcessInfo p : universe.sortByHierarchy(processes)) universe.addStar3D(p);
         universe.assignOrbits(processes);
 
-        for (Universe.Cluster cluster : Universe.CLUSTERS)
+        for (Universe.Cluster cluster : universe.activeClusters)
             check(cluster.radius == 220, "Equal category overview regions");
+        check(!universe.activeClusters.contains(Universe.FALLBACK), "Empty Other region hidden");
+        check(universe.activeClusters.size() == 4, "Only populated categories occupy overview space");
         check(universe.camRotX == 0 && universe.autoRotY == 0,
                 "Overview faces viewer and stays stationary");
 
         Universe.Star3D browser = universe.starMap.get("3");
         Universe.Star3D helper = universe.starMap.get("4");
+        check(universe.starMap.get("1").childCount == 2,
+                "Parent counts include children placed in other categories");
+        universe.selectedStar = universe.starMap.get("1");
+        check(universe.visibleStars().size() == 3,
+                "Focus includes direct children across category boundaries");
+        universe.selectedStar = null;
         check(browser.cluster == Universe.CLUSTERS[4], "Browser category");
         check(!browser.orbiting, "Browser anchors its category rather than orbiting shell");
         check(helper.cluster == browser.cluster && helper.orbiting, "Helper stays with browser");
@@ -64,6 +72,23 @@ public class UniverseLayoutTest {
         check(Universe.reserveLabel(labels, 10, 20, 80, 13), "First label fits");
         check(!Universe.reserveLabel(labels, 20, 22, 80, 13), "Overlapping label suppressed");
         check(Universe.reserveLabel(labels, 150, 20, 80, 13), "Separate label fits");
+
+        universe.selectedStar = browser;
+        check(universe.visibleStars().size() == browser.childCount + 1,
+                "Focus shows parent and direct children only");
+        check(!universe.visibleStars().contains(universe.starMap.get("5")),
+                "Nested descendants wait until their parent is selected");
+        check(universe.screenRadius(browser, 1) > universe.screenRadius(universe.starMap.get("59"), 1),
+                "Parents remain visually distinct at overview and focus scales");
+        for (Universe.Star3D a : universe.visibleStars()) {
+            for (Universe.Star3D b : universe.visibleStars()) {
+                if (a == b) continue;
+                double[] ap = universe.displayPosition(a), bp = universe.displayPosition(b);
+                check(Math.hypot(ap[0] - bp[0], ap[1] - bp[1]) >= 45,
+                        "Focused family has spaced child positions");
+            }
+        }
+        universe.selectedStar = null;
 
         helper.info.ppid = "1";
         universe.assignOrbits(processes);

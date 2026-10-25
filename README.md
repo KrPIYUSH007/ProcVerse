@@ -1,6 +1,18 @@
 # ProcVerse
 # ProcVerse 🌌
 
+## Updated GUI navigation
+
+- Only populated clusters appear in the overview.
+- Parent processes have gold rings; labels include PID and direct child count.
+- Click a parent to explore its direct children in spaced orbital rings.
+- Click another parent in that view to explore the next level of the hierarchy.
+- Double-click to return to the overview; drag to rotate and scroll to zoom.
+- Faint orbit tracks show motion paths. Cross-cluster ancestry appears on hover.
+- Process states still control color; memory affects size within separate parent and child size ranges.
+
+The historical status and roadmap below describe earlier stages; several listed future features are now implemented.
+
 ### Visual Linux Process Universe
 
 ProcVerse is a Linux process visualization and observability project built using Java and JavaFX.

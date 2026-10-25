@@ -128,6 +128,11 @@ public class Universe extends Application {
 
     // Tooltip state
     Star3D hoveredStar = null;
+    Star3D selectedStar = null;
+    Star3D cachedFocus;
+    List<Star3D> focusCache;
+    double focusTime;
+    List<Cluster> activeClusters = new ArrayList<>();
 
     // Screen center
     double CX, CY;
@@ -188,6 +193,8 @@ public class Universe extends Application {
                     if (lastNano[0] == 0) { lastNano[0] = now; return; }
                     double dt = (now - lastNano[0]) / 1_000_000_000.0;
                     lastNano[0] = now;
+                    focusTime += dt;
+                    if (selectedStar != null && !starMap.containsValue(selectedStar)) selectedStar = null;
 
                     // Auto-rotate
                     camRotY += autoRotY;
@@ -347,16 +354,23 @@ public class Universe extends Application {
             // Double-click — reset camera
             canvas.setOnMouseClicked(e -> {
                 if (e.getClickCount() == 2) {
+                    selectedStar = null;
                     camRotX  = 0;
                     camRotY  = 0;
                     camZoom  = 800;
                     camDist  = 0;
                     autoRotY = 0;
+                } else if (e.isStillSincePress()) {
+                    Star3D picked = pickStar(e.getX(), e.getY());
+                    if (picked != null && picked.childCount > 0) {
+                        selectedStar = picked;
+                        camRotX = camRotY = camDist = 0;
+                    }
                 }
             });
 
             Scene scene = new Scene(root, W, H, Color.BLACK);
-            stage.setTitle("ProcVerse | Drag: rotate   Scroll: zoom   Double-click: reset");
+            stage.setTitle("ProcVerse | Click parent: explore family   Drag: rotate   Scroll: zoom   Double-click: overview");
             stage.setScene(scene);
             stage.setMaximized(true);
             stage.show();
@@ -372,9 +386,9 @@ public class Universe extends Application {
     // Returns [screenX, screenY, scale] or null if behind camera
     // -----------------------------------------------
     double[] project(double wx, double wy, double wz) {
-        wx *= layoutScale;
-        wy *= layoutScale;
-        wz *= layoutScale;
+        wx *= viewScale();
+        wy *= viewScale();
+        wz *= viewScale();
         // Rotate around Y axis
         double cosY = Math.cos(camRotY), sinY = Math.sin(camRotY);
         double rx = wx * cosY + wz * sinY;
@@ -400,7 +414,7 @@ public class Universe extends Application {
     double[] bgStarX, bgStarY, bgStarSize, bgStarOpacity;
 
     void initBackgroundStars(double W, double H) {
-        int count = 1800;
+        int count = 650;
         bgStarX       = new double[count];
         bgStarY       = new double[count];
         bgStarSize    = new double[count];
@@ -411,7 +425,7 @@ public class Universe extends Application {
             bgStarY[i]       = Math.random() * H;
             // Mix of tiny pinpoints and slightly larger stars
             bgStarSize[i]    = Math.random() < 0.85 ? Math.random() * 1.2 : 1.5 + Math.random() * 1.5;
-            bgStarOpacity[i] = 0.15 + Math.random() * 0.65;
+            bgStarOpacity[i] = 0.04 + Math.random() * 0.16;
         }
     }
 
@@ -439,11 +453,11 @@ public class Universe extends Application {
         // Collect projected stars, sort by depth (far first)
         List<double[]> projected = new ArrayList<>(); // [sx,sy,scale,starIndex]
 
-        List<Star3D> stars = new ArrayList<>(starMap.values());
+        List<Star3D> stars = visibleStars();
 
         for (int i = 0; i < stars.size(); i++) {
             Star3D s = stars.get(i);
-            double[] p = project(s.x, s.y, s.z);
+            double[] p = projectStar(s);
             if (p == null) continue;
             projected.add(new double[]{p[0], p[1], p[2], i});
         }
@@ -451,16 +465,18 @@ public class Universe extends Application {
         // Sort far to near (painter's algorithm)
         projected.sort((a, b) -> Double.compare(a[2], b[2]));
 
+        java.util.Set<String> drawnOrbits = new java.util.HashSet<>();
         // Draw connection lines first — ALL parent-child relationships
         for (Star3D s : stars) {
             if (s.parentPid == null) continue;
             Star3D parent = starMap.get(s.parentPid);
             if (parent == null) continue;
+            if (selectedStar != null && s == selectedStar) continue;
             boolean focused = s == hovered || parent == hovered;
-            if (s.cluster != parent.cluster && !focused) continue;
+            if (selectedStar == null && s.cluster != parent.cluster && !focused) continue;
 
-            double[] sp = project(s.x, s.y, s.z);
-            double[] pp = project(parent.x, parent.y, parent.z);
+            double[] sp = projectStar(s);
+            double[] pp = projectStar(parent);
             if (sp == null || pp == null) continue;
 
             // Line brightness based on average depth of both endpoints
@@ -472,6 +488,11 @@ public class Universe extends Application {
             gc.setStroke(Color.color(rgb[0] * 0.6, rgb[1] * 0.6, rgb[2] * 0.6, opacity));
             gc.setLineWidth(Math.max(0.3, avgScale * 0.6));
             gc.strokeLine(pp[0], pp[1], sp[0], sp[1]);
+            double trackRadius = selectedStar == null ? s.orbitRadius
+                    : Math.hypot(displayPosition(s)[0], displayPosition(s)[1]);
+            if ((selectedStar != null || s.orbiting) && (selectedStar != null || parent.depth == 0 || focused)
+                    && drawnOrbits.add(parent.info.pid + ":" + Math.round(trackRadius * 100)))
+                drawOrbit(s, parent);
         }
 
         // Draw cluster labels (fixed HUD positions)
@@ -510,9 +531,15 @@ public class Universe extends Application {
                 rgb[2] * brightness
             ));
             gc.fillOval(sx - r, sy - r, r * 2, r * 2);
+            if (s.childCount > 0) {
+                gc.setStroke(Color.color(1, 0.88, 0.5, 0.8));
+                gc.setLineWidth(1.2);
+                gc.strokeOval(sx - r - 2, sy - r - 2, 2 * r + 4, 2 * r + 4);
+            }
 
-            if (s.childCount > 0 && (s.depth == 0 || s == hovered)) {
-                String label = s.info.name + " (" + s.childCount + ")";
+            if (selectedStar != null || s.depth == 0 || s == hovered) {
+                String label = s.info.name + " [" + s.info.pid + "]"
+                        + (s.childCount > 0 ? " (" + s.childCount + ")" : "");
                 double lx = sx + r + 5, ly = sy - r;
                 double width = label.length() * 6.2;
                 if (s == hovered || reserveLabel(labelBounds, lx, ly, width, 13)) {
@@ -536,9 +563,14 @@ public class Universe extends Application {
     // -----------------------------------------------
     void drawClusterHUD(double W, double H) {
         gc.setFont(Font.font("Monospace", FontWeight.BOLD, 11));
+        if (selectedStar != null) {
+            gc.setFill(Color.WHITE);
+            gc.fillText(selectedStar.info.name + " | PID " + selectedStar.info.pid
+                    + " | " + selectedStar.childCount + " children | Click a parent to drill down; double-click for overview", 25, 30);
+            return;
+        }
 
-        List<Cluster> visibleClusters = new ArrayList<>(List.of(CLUSTERS));
-        visibleClusters.add(FALLBACK);
+        List<Cluster> visibleClusters = activeClusters;
         for (Cluster c : visibleClusters) {
             double[] p = project(c.cx3d, c.cy3d, c.cz3d);
             if (p == null) continue;
@@ -565,8 +597,8 @@ public class Universe extends Application {
         Star3D closest = null;
         double minDist = 20; // px threshold
 
-        for (Star3D s : starMap.values()) {
-            double[] p = project(s.x, s.y, s.z);
+        for (Star3D s : visibleStars()) {
+            double[] p = projectStar(s);
             if (p == null) continue;
 
             double r    = screenRadius(s, p[2]);
@@ -598,7 +630,65 @@ public class Universe extends Application {
     }
 
     double screenRadius(Star3D s, double scale) {
-        return Math.max(s.childCount > 0 ? 3 : 1.2, visualRadius(s) * layoutScale * scale);
+        double radius = visualRadius(s) * viewScale() * scale;
+        return s.childCount > 0 ? Math.max(5, Math.min(11, radius))
+                : Math.max(1.5, Math.min(4, radius));
+    }
+
+    List<Star3D> visibleStars() {
+        if (selectedStar == null) return new ArrayList<>(orbitOrder);
+        if (cachedFocus == selectedStar && focusCache != null) return focusCache;
+        List<Star3D> visible = new ArrayList<>();
+        visible.add(selectedStar);
+        for (Star3D s : orbitOrder)
+            if (s != selectedStar && selectedStar.info.pid.equals(s.parentPid)) visible.add(s);
+        visible.subList(1, visible.size()).sort((a, b) -> a.info.pid.compareTo(b.info.pid));
+        cachedFocus = selectedStar;
+        focusCache = visible;
+        return visible;
+    }
+
+    double viewScale() {
+        if (selectedStar == null) return layoutScale;
+        double extent = 160 + Math.max(0, (selectedStar.childCount - 1) / 12) * 60;
+        return Math.min(CX > 0 ? CX : 800, CY > 0 ? CY : 450) * 0.8 / extent;
+    }
+
+    double[] displayPosition(Star3D s) {
+        if (selectedStar == null) return new double[]{s.x, s.y, s.z};
+        if (s == selectedStar) return new double[]{0, 0, 0};
+        List<Star3D> visible = visibleStars();
+        int index = visible.indexOf(s) - 1;
+        if (index < 0) return null;
+        int ring = index / 12;
+        int count = Math.min(12, visible.size() - 1 - ring * 12);
+        double angle = 2 * Math.PI * (index % 12) / count + focusTime * 0.18 / (ring + 1);
+        double radius = 100 + ring * 60;
+        return new double[]{Math.cos(angle) * radius, Math.sin(angle) * radius, 0};
+    }
+
+    double[] projectStar(Star3D s) {
+        double[] position = displayPosition(s);
+        return position == null ? null : project(position[0], position[1], position[2]);
+    }
+
+    void drawOrbit(Star3D s, Star3D parent) {
+        double[] center = displayPosition(parent);
+        double[] child = displayPosition(s);
+        if (center == null || child == null) return;
+        double radius = selectedStar == null ? s.orbitRadius : Math.hypot(child[0], child[1]);
+        double tilt = selectedStar == null ? s.orbitTilt : 0;
+        gc.setStroke(Color.color(0.5, 0.7, 0.85, selectedStar == null ? 0.12 : 0.25));
+        gc.setLineWidth(0.6);
+        double[] previous = null;
+        for (int i = 0; i <= 48; i++) {
+            double angle = i * Math.PI / 24;
+            double y = Math.sin(angle) * radius;
+            double[] point = project(center[0] + Math.cos(angle) * radius,
+                    center[1] + y * Math.cos(tilt), center[2] + y * Math.sin(tilt));
+            if (point != null && previous != null) gc.strokeLine(previous[0], previous[1], point[0], point[1]);
+            previous = point;
+        }
     }
 
     static boolean reserveLabel(List<double[]> bounds, double x, double y, double w, double h) {
@@ -651,6 +741,7 @@ public class Universe extends Application {
     // Assign orbit parameters
     // -----------------------------------------------
     void assignOrbits(List<ProcessInfo> processes) {
+        focusCache = null;
         List<ProcessInfo> sorted = sortByHierarchy(processes);
         orbitOrder.clear();
         Map<String, List<String>> childrenOf = new HashMap<>();
@@ -659,6 +750,7 @@ public class Universe extends Application {
             Star3D star = starMap.get(p.pid);
             Star3D parent = starMap.get(p.ppid);
             if (star == null) continue;
+            if (parent != null && parent != star) parent.childCount++;
             Cluster category = assignCluster(p);
             // Unclassified helpers belong to their parent's process family.
             if (category == FALLBACK && parent != null && parent.cluster != null)
@@ -695,7 +787,6 @@ public class Universe extends Application {
             List<String> children = childrenOf.get(parentPid);
             if (children == null) continue;
             int          count     = children.size();
-            parent.childCount = count;
             children.sort(String::compareTo);
 
             double childExtent = 12;
@@ -747,6 +838,9 @@ public class Universe extends Application {
         Map<Cluster, List<Star3D>> roots = new HashMap<>();
         for (Star3D s : orbitOrder)
             if (!s.orbiting) roots.computeIfAbsent(s.cluster, k -> new ArrayList<>()).add(s);
+        clusters.removeIf(c -> !roots.containsKey(c));
+        activeClusters = new ArrayList<>(clusters);
+        if (clusters.isEmpty()) { layoutScale = 1; return; }
         for (Cluster c : clusters) {
             List<Star3D> families = roots.getOrDefault(c, new ArrayList<>());
             families.sort((a, b) -> a.info.pid.compareTo(b.info.pid));
