@@ -3,10 +3,6 @@
 
 ## Updated GUI navigation
 
-The renderer uses a navy space background, soft category halos, luminous star cores,
-staggered orbital rings, and an on-screen controls bar. Category headers show process
-counts. Relationship spokes appear on hover so the default view stays calm.
-
 - Only populated clusters appear in the overview.
 - Parent processes have gold rings; labels include PID and direct child count.
 - Click a parent to explore its direct children in spaced orbital rings.
