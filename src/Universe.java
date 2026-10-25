@@ -8,6 +8,9 @@ import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
+import javafx.scene.paint.CycleMethod;
+import javafx.scene.paint.RadialGradient;
+import javafx.scene.paint.Stop;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
@@ -444,11 +447,20 @@ public class Universe extends Application {
                    Text tooltipName, Text tooltipPid, Text tooltipPpid,
                    Text tooltipState, Text tooltipMem) {
 
-        gc.setFill(Color.BLACK);
+        gc.setFill(Color.web("#050913"));
         gc.fillRect(0, 0, W, H);
 
         // Background starfield
         drawBackgroundStars();
+        if (selectedStar == null) {
+            for (Cluster c : activeClusters) {
+                double[] p = project(c.cx3d, c.cy3d, c.cz3d);
+                if (p == null) continue;
+                double radius = c.radius * layoutScale * p[2];
+                gc.setFill(halo(c.color, 0.11));
+                gc.fillOval(p[0] - radius, p[1] - radius, radius * 2, radius * 2);
+            }
+        }
 
         // Collect projected stars, sort by depth (far first)
         List<double[]> projected = new ArrayList<>(); // [sx,sy,scale,starIndex]
@@ -487,7 +499,7 @@ public class Universe extends Application {
             double[] rgb = stateColor(s.info.state);
             gc.setStroke(Color.color(rgb[0] * 0.6, rgb[1] * 0.6, rgb[2] * 0.6, opacity));
             gc.setLineWidth(Math.max(0.3, avgScale * 0.6));
-            gc.strokeLine(pp[0], pp[1], sp[0], sp[1]);
+            if (focused) gc.strokeLine(pp[0], pp[1], sp[0], sp[1]);
             double trackRadius = selectedStar == null ? s.orbitRadius
                     : Math.hypot(displayPosition(s)[0], displayPosition(s)[1]);
             if ((selectedStar != null || s.orbiting) && (selectedStar != null || parent.depth == 0 || focused)
@@ -508,43 +520,36 @@ public class Universe extends Application {
 
             double r = screenRadius(s, scale);
 
-            // Depth-based brightness
-            double brightness = Math.min(1.0, scale * 1.2);
-
             // Base color from state
             double[] rgb = stateColor(s.info.state);
 
             // Glow effect — outer halo
-            double glowR = r * 2.2;
-            gc.setFill(Color.color(
-                rgb[0] * brightness * 0.3,
-                rgb[1] * brightness * 0.3,
-                rgb[2] * brightness * 0.3,
-                0.25
-            ));
+            double glowR = r * (s.childCount > 0 ? 4.5 : 2.5);
+            gc.setFill(halo(rgb, s.childCount > 0 ? 0.6 : 0.35));
             gc.fillOval(sx - glowR, sy - glowR, glowR * 2, glowR * 2);
 
             // Star core
-            gc.setFill(Color.color(
-                rgb[0] * brightness,
-                rgb[1] * brightness,
-                rgb[2] * brightness
-            ));
+            gc.setFill(new RadialGradient(0, 0, 0.38, 0.33, 0.7, true, CycleMethod.NO_CYCLE,
+                    new Stop(0, Color.web("#f2fbff")),
+                    new Stop(0.45, Color.color(rgb[0], rgb[1], rgb[2])),
+                    new Stop(1, Color.color(rgb[0] * 0.4, rgb[1] * 0.4, rgb[2] * 0.5))));
             gc.fillOval(sx - r, sy - r, r * 2, r * 2);
             if (s.childCount > 0) {
-                gc.setStroke(Color.color(1, 0.88, 0.5, 0.8));
-                gc.setLineWidth(1.2);
-                gc.strokeOval(sx - r - 2, sy - r - 2, 2 * r + 4, 2 * r + 4);
+                gc.setStroke(Color.color(1, 0.84, 0.53, 0.7));
+                gc.setLineWidth(0.8);
+                gc.strokeOval(sx - r - 3, sy - r - 3, 2 * r + 6, 2 * r + 6);
             }
 
             if (selectedStar != null || s.depth == 0 || s == hovered) {
                 String label = s.info.name + " [" + s.info.pid + "]"
                         + (s.childCount > 0 ? " (" + s.childCount + ")" : "");
                 double lx = sx + r + 5, ly = sy - r;
-                double width = label.length() * 6.2;
+                double width = label.length() * 6.8;
                 if (s == hovered || reserveLabel(labelBounds, lx, ly, width, 13)) {
-                    gc.setFont(Font.font("Monospace", 10));
-                    gc.setFill(Color.color(1, 1, 1, 0.8));
+                    gc.setFill(Color.web("#050913", 0.75));
+                    gc.fillRoundRect(lx - 3, ly - 12, width + 6, 17, 5, 5);
+                    gc.setFont(Font.font("Monospace", 11));
+                    gc.setFill(Color.web("#c5d3e4"));
                     gc.fillText(label, lx, ly);
                 }
             }
@@ -556,17 +561,43 @@ public class Universe extends Application {
                 gc.strokeOval(sx - r - 2, sy - r - 2, (r + 2) * 2, (r + 2) * 2);
             }
         }
+        drawChrome(W, H);
+    }
+
+    RadialGradient halo(double[] rgb, double opacity) {
+        return new RadialGradient(0, 0, 0.5, 0.5, 0.5, true, CycleMethod.NO_CYCLE,
+                new Stop(0, Color.color(rgb[0], rgb[1], rgb[2], opacity)),
+                new Stop(0.35, Color.color(rgb[0], rgb[1], rgb[2], opacity * 0.3)),
+                new Stop(1, Color.TRANSPARENT));
+    }
+
+    void drawChrome(double W, double H) {
+        gc.setFill(Color.web("#e4edf9"));
+        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 22));
+        gc.fillText("ProcVerse", 30, 38);
+        gc.setFont(Font.font("SansSerif", 11));
+        gc.setFill(Color.web("#8294af"));
+        gc.fillText("L I V E   P R O C E S S   A T L A S", 31, 58);
+        gc.setFill(Color.web("#7dddc8"));
+        gc.fillOval(W - 193, 27, 5, 5);
+        gc.setFill(Color.web("#9eafc7"));
+        gc.fillText(starMap.size() + " processes  /  " + activeClusters.size() + " clusters", W - 180, 34);
+        gc.setFill(Color.web("#0c1525", 0.95));
+        gc.fillRoundRect(25, H - 48, W - 50, 30, 12, 12);
+        gc.setFill(Color.web("#91a4bf"));
+        gc.fillText("Click a parent to explore   /   Drag to rotate   /   Scroll to zoom   /   Double-click for overview", 40, H - 29);
+        if (W > 1200) gc.fillText("Gold ring: parent   /   Color: state   /   Size: memory", W - 380, H - 29);
     }
 
     // -----------------------------------------------
     // Draw cluster name labels as HUD overlay
     // -----------------------------------------------
     void drawClusterHUD(double W, double H) {
-        gc.setFont(Font.font("Monospace", FontWeight.BOLD, 11));
+        gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 13));
         if (selectedStar != null) {
             gc.setFill(Color.WHITE);
             gc.fillText(selectedStar.info.name + " | PID " + selectedStar.info.pid
-                    + " | " + selectedStar.childCount + " children | Click a parent to drill down; double-click for overview", 25, 30);
+                    + " | " + selectedStar.childCount + " children", 30, 91);
             return;
         }
 
@@ -580,12 +611,18 @@ public class Universe extends Application {
 
             gc.setFill(Color.color(c.color[0], c.color[1], c.color[2], opacity));
             gc.fillText(c.name.replaceAll("[^\\x00-\\x7F]", "").trim(),
-                    p[0] - 50, p[1] - c.radius * layoutScale * scale - 5);
+                    p[0] - 65, p[1] - c.radius * layoutScale * scale - 13);
+            long count = orbitOrder.stream().filter(s -> s.cluster == c).count();
+            gc.setFont(Font.font("SansSerif", 10));
+            gc.setFill(Color.web("#7f91ac"));
+            gc.fillText(count + (count == 1 ? " process" : " processes"),
+                    p[0] - 65, p[1] - c.radius * layoutScale * scale + 2);
+            gc.setFont(Font.font("SansSerif", FontWeight.BOLD, 13));
 
             // Cluster ring
             double ringR = c.radius * layoutScale * scale;
-            gc.setStroke(Color.color(c.color[0], c.color[1], c.color[2], opacity * 0.2));
-            gc.setLineWidth(1.0);
+            gc.setStroke(Color.color(c.color[0], c.color[1], c.color[2], opacity * 0.16));
+            gc.setLineWidth(0.7);
             gc.strokeOval(p[0] - ringR, p[1] - ringR, ringR * 2, ringR * 2);
         }
     }
@@ -662,7 +699,8 @@ public class Universe extends Application {
         if (index < 0) return null;
         int ring = index / 12;
         int count = Math.min(12, visible.size() - 1 - ring * 12);
-        double angle = 2 * Math.PI * (index % 12) / count + focusTime * 0.18 / (ring + 1);
+        double angle = 2 * Math.PI * (index % 12) / count + ring * 2.399963
+                + focusTime * 0.18 / (ring + 1);
         double radius = 100 + ring * 60;
         return new double[]{Math.cos(angle) * radius, Math.sin(angle) * radius, 0};
     }
@@ -808,7 +846,7 @@ public class Universe extends Application {
                     sn.orbiting    = true;
                     sn.parentPid   = parentPid;
                     sn.orbitRadius = orbitRadius;
-                    sn.orbitAngle  = (2 * Math.PI / ringCount) * (i % 12);
+                    sn.orbitAngle  = (2 * Math.PI / ringCount) * (i % 12) + ring * 2.399963;
                     sn.orbitTilt   = 0.15; // common plane prevents sibling paths crossing
                 } else {
                     sn.orbitRadius = orbitRadius;
