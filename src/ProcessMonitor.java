@@ -1,18 +1,28 @@
 import java.io.*;
 import java.util.*;
+import java.nio.file.Path;
 
 public class ProcessMonitor {
 
     public static List<ProcessInfo> getProcesses() {
+        try { return readSnapshot(Path.of("/proc")).processes; }
+        catch (IOException e) {
+            System.err.println("ProcVerse: " + e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    public static ProcessSnapshot readSnapshot(Path procRoot) throws IOException {
 
         List<ProcessInfo> processes = new ArrayList<>();
 
-        File proc = new File("/proc");
+        File proc = procRoot.toFile();
+        int skipped = 0;
 
         File[] files = proc.listFiles();
 
         if (files == null) {
-            return processes;
+            throw new IOException("Cannot enumerate process directory: " + procRoot);
         }
 
         for (File file : files) {
@@ -24,7 +34,7 @@ public class ProcessMonitor {
                 String pid = file.getName();
 
                 File statusFile =
-                    new File("/proc/" + pid + "/status");
+                    procRoot.resolve(pid).resolve("status").toFile();
 
                 String processName = "";
                 String processState = "";
@@ -49,7 +59,7 @@ public class ProcessMonitor {
                                 line.trim().split("\\s+");
 
                             if (parts.length >= 2) {
-                                processName = parts[1];
+                                processName = line.substring(line.indexOf(':') + 1).trim();
                             }
                         }
 
@@ -96,13 +106,15 @@ public class ProcessMonitor {
 
                 } catch (Exception e) {
 
-                    System.out.println(
-                        "Failed process: " + pid
-                    );
+                    skipped++;
 
                     continue;
                 }
 
+                if (processName.isEmpty() || processState.isEmpty()) {
+                    skipped++;
+                    continue;
+                }
                 // Add process to list
                 processes.add(
                     new ProcessInfo(
@@ -117,6 +129,7 @@ public class ProcessMonitor {
             }
         }
 
-        return processes;
+        processes.sort(Comparator.comparingLong(p -> Long.parseLong(p.pid)));
+        return new ProcessSnapshot(System.currentTimeMillis(), processes, skipped);
     }
 }

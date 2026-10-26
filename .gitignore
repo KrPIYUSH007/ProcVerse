@@ -29,6 +29,7 @@ go.work.sum
 
 # Local Java build output
 build/
+*.class
 
 # Editor/IDE
 # .idea/

@@ -1,6 +1,27 @@
 # ProcVerse
 # ProcVerse 🌌
 
+## Build and run on Linux
+
+Use a JDK (17+) for the collector and a compatible JDK/JavaFX SDK for the Explorer.
+
+```bash
+git pull origin main
+export JAVAFX_LIB="$HOME/path/to/javafx-sdk/lib"
+bash scripts/run.sh explorer
+```
+
+The script rebuilds before launch. For the new headless process feed (no JavaFX):
+
+```bash
+bash scripts/run.sh collector --once
+bash scripts/build.sh test
+```
+
+The GNOME 46 / Wayland wallpaper integration is being developed in stages.
+See [the workflow and snapshot contract](docs/WALLPAPER.md). The extension itself
+is not yet included; the interactive Explorer retains its existing appearance.
+
 ## Updated GUI navigation
 
 - Only populated clusters appear in the overview.
