@@ -18,9 +18,17 @@ bash scripts/run.sh collector --once
 bash scripts/build.sh test
 ```
 
-The GNOME 46 / Wayland wallpaper integration is being developed in stages.
-See [the workflow and snapshot contract](docs/WALLPAPER.md). The extension itself
-is not yet included; the interactive Explorer retains its existing appearance.
+For the GNOME 46 / Wayland wallpaper prototype:
+
+```bash
+bash scripts/install-wallpaper.sh
+# Log out and back in, then:
+gnome-extensions enable procverse@krpiyush007
+```
+
+See [installation, limitations, and troubleshooting](docs/WALLPAPER.md).
+The wallpaper has not yet been verified in a real GNOME session; the interactive
+Explorer retains its existing appearance.
 
 ## Updated GUI navigation
 

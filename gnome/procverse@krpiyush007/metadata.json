@@ -1,0 +1,8 @@
+{
+  "uuid": "procverse@krpiyush007",
+  "name": "ProcVerse Wallpaper",
+  "description": "A local, live Linux process galaxy behind your windows. GNOME 46 prototype.",
+  "shell-version": ["46"],
+  "version": 1,
+  "url": "https://github.com/KrPIYUSH007/ProcVerse"
+}
